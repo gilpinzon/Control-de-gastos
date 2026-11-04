@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  
+  <!-- PWA & Mobile Web App Meta Tags (Optimizado para iOS y Android) -->
+  <title>DuoControl | Presupuesto Unificado Gil &amp; Ale</title>
+  <meta name="description" content="Control financiero del hogar y lista de compras en tiempo real para Gil &amp; Ale." />
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#07090e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="DuoControl" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+  <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            obsidian: '#07090e',
+            slateDark: '#0d121f',
+            cardDark: '#121826',
+            cardBorder: 'rgba(255, 255, 255, 0.09)',
+            emeraldAccent: '#10b981',
+            roseAccent: '#f43f5e',
+            violetAccent: '#8b5cf6',
+            indigoAccent: '#6366f1'
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Canvas Confetti CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+  <!-- Custom App CSS (Touch targets >= 44px) -->
+  <link rel="stylesheet" href="./app.css" />
+</head>
+
+<body class="bg-[#07090e] text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
+
+  <!-- ==========================================
+       TOP APP BAR / HEADER (100% MOBILE-FIRST)
+       ========================================== -->
+  <header class="sticky top-0 z-40 w-full bg-[#07090e]/90 backdrop-blur-md border-b border-white/10 px-4 py-2.5">
+    <div class="max-w-md mx-auto flex items-center justify-between gap-2">
+      
+      <!-- Brand & Pareja (Gil & Ale) -->
+      <div class="flex items-center space-x-2.5 cursor-pointer shrink-0" onclick="app.switchTab('dashboard')">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
+          <i data-lucide="wallet-cards" class="w-5 h-5 text-white"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-1.5">
+            <span class="font-extrabold text-base tracking-tight bg-gradient-to-r from-white via-slate-200 to-emerald-400 bg-clip-text text-transparent">DuoControl</span>
+            <span id="syncStatusBadge" class="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 pulse-online"></span>
+              <span id="syncStatusText">Local Seguro</span>
+            </span>
+          </div>
+          <p id="headerCoupleName" class="text-[11px] text-slate-400 font-semibold truncate max-w-[130px] sm:max-w-none">Gil &amp; Ale • Hogar 🏡</p>
+        </div>
+      </div>
+
+      <!-- REQUERIMIENTO 3: SELECTOR DE MESES (LISTA DESPLEGABLE NATIVA <SELECT>) -->
+      <div class="month-select-wrapper flex items-center shrink-0">
+        <select id="monthDropdownSelect" onchange="app.handleMonthDropdownChange(event)" 
+                class="month-dropdown-select touch-press text-xs font-bold bg-slate-900 border border-white/15 rounded-xl text-slate-200 focus:outline-none focus:border-emerald-500 shadow-sm"
+                aria-label="Seleccionar mes para filtrar finanzas">
+          <!-- Opciones de Enero a Diciembre inyectadas dinámicamente por app.js -->
+        </select>
+        <button id="btnPwaInstallHeader" onclick="app.promptInstallPwa()" class="hidden ml-1.5 min-h-[44px] min-w-[44px] px-2.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 touch-press items-center justify-center">
+          <i data-lucide="download" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ==========================================
+       MAIN CONTAINER (ANCHO IDEAL MÓVIL)
+       ========================================== -->
+  <main class="max-w-md mx-auto px-4 pt-3 pb-8">
+
+    <!-- ==========================================
+         SMART INSIGHTS BANNER (MÓDULO DINÁMICO)
+         ========================================== -->
+    <section id="smartInsightsSection" class="mb-4">
+      <div class="relative overflow-hidden rounded-2xl p-4 border border-emerald-500/25 bg-gradient-to-br from-emerald-950/40 via-[#0d1527] to-[#121c33] shadow-lg shadow-emerald-950/30">
+        <div class="absolute -right-6 -bottom-6 w-24 h-24 rounded-full bg-emerald-500/10 blur-xl pointer-events-none"></div>
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-start space-x-3">
+            <div id="insightIconBox" class="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0 text-emerald-400 mt-0.5">
+              <i data-lucide="sparkles" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">Smart Insights • Gil &amp; Ale</span>
+                <span id="insightBadge" class="text-[9px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 font-semibold">Inicio Limpio</span>
+              </div>
+              <p id="insightMessage" class="text-xs sm:text-sm font-semibold text-slate-100 mt-1 leading-snug">
+                ¡Bienvenidos Gil &amp; Ale! El presupuesto familiar está limpio e iniciado en ceros.
+              </p>
+            </div>
+          </div>
+          <!-- Next Insight Arrow (min 44px touch area) -->
+          <button onclick="app.cycleNextInsight()" class="min-w-[44px] min-h-[44px] -mr-1 flex items-center justify-center rounded-xl text-slate-400 hover:text-white touch-press" title="Siguiente consejo">
+            <i data-lucide="chevron-right" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================
+         TAB 1: DASHBOARD & FINANZAS (PRESUPUESTO UNIFICADO)
+         ======================================================== -->
+    <div id="tab-dashboard" class="space-y-4">
+
+      <!-- Financial KPI Cards -->
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Ingresos Totales Familiares -->
+        <div class="glass-panel p-3.5 relative overflow-hidden">
+          <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+            <span class="font-bold">Ingresos</span>
+            <div class="w-7 h-7 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
+              <i data-lucide="arrow-down-left" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div id="kpiIncome" class="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">$0</div>
+          <div class="text-[11px] text-slate-400 mt-1 flex items-center space-x-1">
+            <span id="kpiIncomeSubtitle">Fondo conjunto</span>
+          </div>
+        </div>
+
+        <!-- Gastos Totales del Hogar -->
+        <div class="glass-panel p-3.5 relative overflow-hidden">
+          <div class="flex items-center justify-between text-slate-400 text-xs mb-1">
+            <span class="font-bold">Gastos</span>
+            <div class="w-7 h-7 rounded-lg bg-rose-500/15 flex items-center justify-center text-rose-400">
+              <i data-lucide="arrow-up-right" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div id="kpiExpense" class="text-xl sm:text-2xl font-black text-rose-400 tabular-nums">$0</div>
+          <div class="text-[11px] text-slate-400 mt-1 flex items-center space-x-1">
+            <span id="kpiExpenseSubtitle">Total desembolsos</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Net Balance & Savings Rate Card -->
+      <div class="glass-panel p-4 relative overflow-hidden border border-white/10">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <p class="text-xs font-semibold text-slate-400">Fondo Común Disponible (Mes)</p>
+            <h2 id="kpiBalance" class="text-2xl sm:text-3xl font-black text-white tabular-nums tracking-tight mt-0.5">$0</h2>
+          </div>
+          <div class="text-right">
+            <span class="text-[11px] font-bold text-slate-400">Tasa de Ahorro</span>
+            <div id="kpiSavingsRate" class="text-lg font-black text-emerald-400 tabular-nums">0%</div>
+          </div>
+        </div>
+
+        <!-- Monthly Progress Bar -->
+        <div class="w-full bg-slate-800/80 rounded-full h-2.5 overflow-hidden mt-3 relative">
+          <div id="budgetProgressBar" class="h-full rounded-full bg-gradient-to-r from-emerald-500 to-indigo-500 transition-all duration-700" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between items-center text-[10px] text-slate-400 mt-1.5 font-medium">
+          <span id="progressBarLabelLeft">0% de los ingresos consumidos</span>
+          <span id="progressBarLabelRight">Fondo listo e iniciado en ceros</span>
+        </div>
+      </div>
+
+      <!-- REQUERIMIENTO 5: BOTONES SEPARADOS Y VISUALES PARA REGISTRO DE GASTOS E INGRESOS -->
+      <div class="grid grid-cols-2 gap-2.5">
+        <button onclick="app.openTransactionModal('gasto')" 
+                class="min-h-[50px] flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500/25 to-rose-600/15 border border-rose-500/40 text-rose-200 font-extrabold text-sm hover:border-rose-500/60 touch-press shadow-md shadow-rose-950/40">
+          <i data-lucide="minus-circle" class="w-5 h-5 text-rose-400"></i>
+          <span>Registrar Gasto</span>
+        </button>
+        <button onclick="app.openTransactionModal('ingreso')" 
+                class="min-h-[50px] flex items-center justify-center space-x-2 py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-emerald-600/15 border border-emerald-500/40 text-emerald-200 font-extrabold text-sm hover:border-emerald-500/60 touch-press shadow-md shadow-emerald-950/40">
+          <i data-lucide="plus-circle" class="w-5 h-5 text-emerald-400"></i>
+          <span>Registrar Ingreso</span>
+        </button>
+      </div>
+
+      <!-- Visual Charts Section (Categorías Específicas del Hogar) -->
+      <div class="glass-panel p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5">
+            <i data-lucide="pie-chart" class="w-4 h-4 text-emerald-400"></i>
+            <span>Gastos por Categoría</span>
+          </h3>
+          <span id="chartMonthBadge" class="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 text-slate-300 font-bold border border-white/5">Mes Actual</span>
+        </div>
+
+        <div class="relative w-full h-52 flex items-center justify-center">
+          <canvas id="categoryDonutChart"></canvas>
+          <div id="chartEmptyState" class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+            <i data-lucide="wallet" class="w-10 h-10 text-slate-600 mb-2"></i>
+            <p class="text-xs font-semibold text-slate-300">Sin gastos este mes</p>
+            <p class="text-[11px] text-slate-500 mt-0.5">Los gastos registrados aparecerán aquí</p>
+          </div>
+        </div>
+
+        <!-- Category Legends Grid -->
+        <div id="categoryLegendsGrid" class="grid grid-cols-1 gap-1.5 mt-3 pt-3 border-t border-white/10 text-xs">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Recent Transactions List -->
+      <div class="glass-panel p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5">
+            <i data-lucide="history" class="w-4 h-4 text-indigo-400"></i>
+            <span>Movimientos del Mes</span>
+          </h3>
+          <!-- Filter Filter Type Dropdown (Touch >= 44px) -->
+          <div class="flex items-center space-x-1">
+            <button onclick="app.setTxFilter('todos')" id="filterBtnTodos" class="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 touch-press">Todos</button>
+            <button onclick="app.setTxFilter('gasto')" id="filterBtnGastos" class="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white touch-press">Gastos</button>
+            <button onclick="app.setTxFilter('ingreso')" id="filterBtnIngresos" class="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white touch-press">Ingresos</button>
+          </div>
+        </div>
+
+        <div id="transactionsContainer" class="space-y-2">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================================
+         TAB 2: LISTA DE MERCADO (SUPERMERCADO EN TIEMPO REAL)
+         ======================================================== -->
+    <div id="tab-market" class="hidden space-y-4">
+      
+      <!-- Market Hero Header & Realtime Sync Indicator -->
+      <div class="glass-panel p-4 bg-gradient-to-r from-emerald-950/30 to-[#0e172a] border border-emerald-500/20">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <i data-lucide="shopping-cart" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h2 class="text-sm font-bold text-white">Lista de Mercado de Gil &amp; Ale</h2>
+              <p class="text-[11px] text-slate-400">Sincronización en vivo entre ambos ⚡</p>
+            </div>
+          </div>
+          <button onclick="app.clearCompletedItems()" class="min-h-[44px] px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-300 border border-rose-500/20 hover:bg-rose-500/20 touch-press flex items-center space-x-1 text-xs font-semibold">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span>Limpiar</span>
+          </button>
+        </div>
+
+        <!-- Market Progress Bar -->
+        <div class="mt-3">
+          <div class="flex justify-between text-xs font-semibold mb-1">
+            <span id="marketProgressText" class="text-emerald-400">0 de 0 comprados</span>
+            <span id="marketProgressPercent" class="text-slate-300">0%</span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+            <div id="marketProgressBar" class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Botón para vincular directamente con gasto de supermercado -->
+        <button onclick="app.openTransactionModal('gasto'); app.selectModalCategory('Mercado / Supermercado');" 
+                class="mt-3 w-full min-h-[44px] py-2.5 px-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-xs font-bold text-emerald-300 flex items-center justify-center space-x-2 touch-press">
+          <i data-lucide="receipt" class="w-4 h-4 text-emerald-400"></i>
+          <span>Registrar Gasto de Supermercado en el Fondo</span>
+        </button>
+      </div>
+
+      <!-- Quick Add Grocery Form (Áreas de toque amplias) -->
+      <div class="glass-panel p-3.5">
+        <form id="addShoppingItemForm" onsubmit="app.handleAddShoppingItem(event)" class="space-y-3">
+          <div class="flex space-x-2">
+            <input type="text" id="groceryItemInput" placeholder="Ej: Arroz, Leche, Huevos, Jabón..." required 
+                   class="flex-1 min-h-[48px] bg-slate-900 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/70" />
+            <input type="text" id="groceryQuantityInput" placeholder="Cant." value="1"
+                   class="w-20 min-h-[48px] bg-slate-900 border border-white/10 rounded-2xl px-2 py-3 text-center text-sm text-white focus:outline-none focus:border-emerald-500/70" />
+            <button type="submit" class="min-h-[48px] min-w-[52px] bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 rounded-2xl text-sm flex items-center justify-center touch-press shrink-0 shadow-md shadow-emerald-500/20">
+              <i data-lucide="plus" class="w-5 h-5"></i>
+            </button>
+          </div>
+
+          <!-- Quick Category Tags Selector (Touch >= 44px) -->
+          <div class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-1">
+            <button type="button" onclick="app.selectGroceryCategory('Mercado / Supermercado')" class="grocery-cat-chip min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0 touch-press">🛒 General</button>
+            <button type="button" onclick="app.selectGroceryCategory('Frutas y Verduras')" class="grocery-cat-chip min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white shrink-0 touch-press">🥦 Frutas</button>
+            <button type="button" onclick="app.selectGroceryCategory('Carnes y Pollo')" class="grocery-cat-chip min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white shrink-0 touch-press">🥩 Carnes</button>
+            <button type="button" onclick="app.selectGroceryCategory('Aseo del Hogar')" class="grocery-cat-chip min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white shrink-0 touch-press">🧼 Aseo</button>
+          </div>
+          <input type="hidden" id="selectedGroceryCategory" value="Mercado / Supermercado" />
+        </form>
+      </div>
+
+      <!-- Pending Items Section -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between px-1">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+            <i data-lucide="clock" class="w-4 h-4 text-amber-400"></i>
+            <span>Por Comprar (<span id="pendingCount">0</span>)</span>
+          </h3>
+          <span class="text-[11px] text-slate-500">Toca para marcar</span>
+        </div>
+
+        <div id="pendingGroceryList" class="space-y-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Completed / In Cart Items Section -->
+      <div class="space-y-2 pt-2">
+        <div class="flex items-center justify-between px-1">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+            <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+            <span>En el Carrito (<span id="completedCount">0</span>)</span>
+          </h3>
+          <button onclick="app.uncheckAllItems()" class="min-h-[44px] px-2 text-xs font-semibold text-slate-400 hover:text-emerald-400 touch-press flex items-center">Desmarcar todos</button>
+        </div>
+
+        <div id="completedGroceryList" class="space-y-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================
+         TAB 3: FONDO COMÚN & METAS DE AHORRO DEL HOGAR
+         ======================================================== -->
+    <div id="tab-balance" class="hidden space-y-4">
+      
+      <!-- Unified Fund & Savings Target Card -->
+      <div class="glass-panel p-5 relative overflow-hidden border border-emerald-500/25 bg-gradient-to-br from-emerald-950/40 via-[#0d121f] to-[#121c35]">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <i data-lucide="piggy-bank" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-white">Fondo Unificado Gil &amp; Ale</h2>
+              <p class="text-[11px] text-slate-400">Un solo presupuesto familiar</p>
+            </div>
+          </div>
+          <span class="text-xs px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">Mes Activo</span>
+        </div>
+
+        <!-- Savings Progress vs Monthly Target -->
+        <div class="bg-black/30 p-4 rounded-2xl border border-white/5 space-y-3 mb-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-xs text-slate-400 block font-medium">Ahorro Neto del Mes</span>
+              <span id="fundMonthlySavedAmount" class="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">$0</span>
+            </div>
+            <div class="text-right">
+              <span class="text-xs text-slate-400 block font-medium">Meta Mensual</span>
+              <span id="fundMonthlyTargetAmount" class="text-sm sm:text-base font-bold text-slate-200 tabular-nums">Sin meta fijada</span>
+            </div>
+          </div>
+
+          <!-- Target Progress Bar -->
+          <div class="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
+            <div id="fundTargetProgressBar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-700" style="width: 0%"></div>
+          </div>
+
+          <div class="flex items-center justify-between text-xs font-semibold">
+            <span id="fundTargetPercentText" class="text-emerald-400">Inicia en ceros</span>
+            <span id="fundTargetRemainingText" class="text-slate-400">Configura tu meta en Ajustes</span>
+          </div>
+        </div>
+
+        <!-- Household Income Contribution Breakdown (Informative, without debt) -->
+        <div class="space-y-2">
+          <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Aportes a los Ingresos Familiares</span>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-black/25 p-3 rounded-2xl border border-white/5">
+              <div class="flex items-center space-x-1.5 text-xs text-slate-400 mb-1">
+                <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                <span id="fundPerson1Name" class="font-bold text-slate-200">Gil</span>
+              </div>
+              <div id="fundPerson1Amount" class="text-base font-black text-cyan-400 tabular-nums">$0</div>
+              <span id="fundPerson1Percent" class="text-[10px] text-slate-400">0% del fondo</span>
+            </div>
+
+            <div class="bg-black/25 p-3 rounded-2xl border border-white/5">
+              <div class="flex items-center space-x-1.5 text-xs text-slate-400 mb-1">
+                <span class="w-2.5 h-2.5 rounded-full bg-violet-400"></span>
+                <span id="fundPerson2Name" class="font-bold text-slate-200">Ale</span>
+              </div>
+              <div id="fundPerson2Amount" class="text-base font-black text-violet-400 tabular-nums">$0</div>
+              <span id="fundPerson2Percent" class="text-[10px] text-slate-400">0% del fondo</span>
+            </div>
+          </div>
+          <p class="text-[11px] text-slate-400 text-center pt-1 font-medium">
+            ✨ Todos los ingresos van a un solo fondo para cubrir los gastos del hogar.
+          </p>
+        </div>
+      </div>
+
+      <!-- Historical Bar Chart -->
+      <div class="glass-panel p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5">
+            <i data-lucide="bar-chart-3" class="w-4 h-4 text-emerald-400"></i>
+            <span>Histórico del Fondo (Últimos 6 Meses)</span>
+          </h3>
+        </div>
+        <div class="relative w-full h-52">
+          <canvas id="historicalBarChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================
+         TAB 4: AJUSTES, GITHUB PAGES & NUBE (MÓDULO 5)
+         ======================================================== -->
+    <div id="tab-settings" class="hidden space-y-4">
+      
+      <!-- Couple Profile & Savings Goal Settings -->
+      <div class="glass-panel p-4">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5 mb-3">
+          <i data-lucide="users" class="w-4 h-4 text-emerald-400"></i>
+          <span>Perfiles del Hogar</span>
+        </h3>
+        
+        <div class="space-y-3">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Integrante 1</label>
+              <input type="text" id="settingsName1" value="Gil" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Integrante 2</label>
+              <input type="text" id="settingsName2" value="Ale" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Meta Mensual de Ahorro Conjunto ($)</label>
+            <input type="number" id="settingsSavingsGoal" value="0" step="50000" placeholder="Ej: 1000000" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Moneda del Fondo</label>
+            <select id="settingsCurrency" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500">
+              <option value="COP" selected>COP ($) - Peso Colombiano</option>
+              <option value="USD">USD ($) - Dólar Estadounidense</option>
+              <option value="EUR">EUR (€) - Euro</option>
+              <option value="MXN">MXN ($) - Peso Mexicano</option>
+              <option value="ARS">ARS ($) - Peso Argentino</option>
+              <option value="CLP">CLP ($) - Peso Chileno</option>
+            </select>
+          </div>
+          <button onclick="app.saveCoupleProfileSettings()" class="w-full min-h-[44px] py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs touch-press shadow-md shadow-emerald-500/20">
+            Guardar Configuración
+          </button>
+        </div>
+      </div>
+
+      <!-- Cloud Sync & GitHub Pages Deployment Info -->
+      <div class="glass-panel p-4 border border-indigo-500/20 bg-gradient-to-br from-indigo-950/20 to-slate-900/50">
+        <div class="flex items-center space-x-2.5 mb-2">
+          <div class="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+            <i data-lucide="shield-check" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-300">Privacidad RLS de Gil &amp; Ale</h3>
+            <p class="text-[11px] text-slate-400">Whitelist exclusiva para 2 cuentas autorizadas</p>
+          </div>
+        </div>
+
+        <div class="space-y-2.5 pt-2">
+          <div class="space-y-1.5">
+            <label class="block text-xs font-semibold text-slate-300">Correos Autorizados:</label>
+            <input type="email" id="settingsEmail1" placeholder="Correo de Gil" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500" />
+            <input type="email" id="settingsEmail2" placeholder="Correo de Ale" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500" />
+          </div>
+          <button onclick="app.saveWhitelistSettings()" class="w-full min-h-[44px] py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-200 font-bold text-xs touch-press">
+            Actualizar Whitelist
+          </button>
+        </div>
+      </div>
+
+      <!-- Neon Cloud PostgreSQL Connection -->
+      <div class="glass-panel p-4 border border-emerald-500/20">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center space-x-2.5">
+            <div class="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+              <i data-lucide="database" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-300">Base de Datos Neon Cloud</h3>
+              <p class="text-[11px] text-slate-400">PostgreSQL Serverless vía Vercel API</p>
+            </div>
+          </div>
+          <span id="neonConnectionBadge" class="text-[10px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-bold">Local Seguro</span>
+        </div>
+
+        <div class="space-y-3 mt-3">
+          <div class="p-3 bg-slate-900/80 border border-white/10 rounded-xl text-xs space-y-2">
+            <div class="flex items-center justify-between text-slate-300">
+              <span class="text-slate-400">Proveedor:</span>
+              <span class="font-semibold text-emerald-400">Neon Serverless PostgreSQL</span>
+            </div>
+            <div class="flex items-center justify-between text-slate-300">
+              <span class="text-slate-400">Base de datos:</span>
+              <span class="font-mono text-[11px] text-slate-200">neondb</span>
+            </div>
+            <div class="flex items-center justify-between text-slate-300">
+              <span class="text-slate-400">Estado de conexión:</span>
+              <span id="apiStatusText" class="font-semibold text-slate-300">Verificando...</span>
+            </div>
+          </div>
+
+          <div class="flex space-x-2">
+            <button onclick="app.syncFromNeon(true)" class="flex-1 min-h-[44px] py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs touch-press shadow-md flex items-center justify-center space-x-1.5">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Sincronizar ahora</span>
+            </button>
+            <button onclick="app.uploadLocalDataToNeon()" class="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold touch-press flex items-center space-x-1.5" title="Sube movimientos y lista creados en modo local">
+              <i data-lucide="upload-cloud" class="w-3.5 h-3.5"></i>
+              <span>Subir datos locales</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- PWA Installation Box -->
+      <div class="glass-panel p-4">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5 mb-2">
+          <i data-lucide="smartphone" class="w-4 h-4 text-violet-400"></i>
+          <span>Instalar como App Nativa (PWA)</span>
+        </h3>
+        <p class="text-xs text-slate-400 mb-3">
+          Instala DuoControl en el teléfono de Gil y Ale para usarla en pantalla completa sin barra de navegador.
+        </p>
+        <button onclick="app.promptInstallPwa()" class="w-full min-h-[44px] py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 touch-press shadow-md shadow-violet-600/30">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>Instalar en Teléfono</span>
+        </button>
+      </div>
+
+      <!-- Backup & Restore -->
+      <div class="glass-panel p-4">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1.5 mb-2">
+          <i data-lucide="database" class="w-4 h-4 text-amber-400"></i>
+          <span>Copia de Seguridad</span>
+        </h3>
+        <div class="grid grid-cols-2 gap-2 mt-2">
+          <button onclick="app.exportBackupData()" class="min-h-[44px] py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-semibold flex items-center justify-center space-x-1.5 touch-press">
+            <i data-lucide="upload" class="w-3.5 h-3.5 text-emerald-400"></i>
+            <span>Exportar JSON</span>
+          </button>
+          <label class="min-h-[44px] py-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-semibold flex items-center justify-center space-x-1.5 cursor-pointer touch-press">
+            <i data-lucide="download" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <span>Restaurar JSON</span>
+            <input type="file" id="backupFileInput" accept=".json" onchange="app.importBackupData(event)" class="hidden" />
+          </label>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ========================================================
+       FLOATING ACTION BUTTON (CENTRAL TOUCH ZONE)
+       ======================================================== -->
+  <button onclick="app.openTransactionModal('gasto')" 
+          class="fixed right-5 bottom-24 z-40 w-14 h-14 rounded-full bg-gradient-to-tr from-emerald-500 via-teal-500 to-indigo-600 text-white shadow-xl shadow-emerald-500/35 flex items-center justify-center touch-press hover:scale-105 active:scale-95 transition-transform"
+          aria-label="Registrar movimiento">
+    <i data-lucide="plus" class="w-7 h-7 stroke-[2.5]"></i>
+  </button>
+
+  <!-- ========================================================
+       BOTTOM NAVIGATION BAR (ÁREAS DE TOQUE MÓVIL >= 48px)
+       ======================================================== -->
+  <nav class="bottom-nav">
+    <div class="max-w-md mx-auto flex items-center justify-around px-2">
+      <!-- Tab 1: Dashboard -->
+      <button onclick="app.switchTab('dashboard')" id="navBtn-dashboard" class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-1 text-emerald-400 transition-colors touch-press">
+        <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+        <span class="text-[10px] font-bold mt-1">Finanzas</span>
+      </button>
+
+      <!-- Tab 2: Market -->
+      <button onclick="app.switchTab('market')" id="navBtn-market" class="relative min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-1 text-slate-400 hover:text-slate-200 transition-colors touch-press">
+        <i data-lucide="shopping-cart" class="w-5 h-5"></i>
+        <span id="navMarketBadge" class="hidden absolute top-1 right-2 px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-emerald-500 text-slate-950">0</span>
+        <span class="text-[10px] font-semibold mt-1">Mercado</span>
+      </button>
+
+      <!-- Center Quick Add Button in Nav -->
+      <button onclick="app.openTransactionModal('gasto')" class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-0.5 text-slate-400 hover:text-emerald-400 transition-colors touch-press">
+        <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+        </div>
+        <span class="text-[9px] font-bold mt-0.5">Nuevo</span>
+      </button>
+
+      <!-- Tab 3: Unified Fund -->
+      <button onclick="app.switchTab('balance')" id="navBtn-balance" class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-1 text-slate-400 hover:text-slate-200 transition-colors touch-press">
+        <i data-lucide="piggy-bank" class="w-5 h-5"></i>
+        <span class="text-[10px] font-semibold mt-1">Fondo</span>
+      </button>
+
+      <!-- Tab 4: Settings -->
+      <button onclick="app.switchTab('settings')" id="navBtn-settings" class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-1 text-slate-400 hover:text-slate-200 transition-colors touch-press">
+        <i data-lucide="settings" class="w-5 h-5"></i>
+        <span class="text-[10px] font-semibold mt-1">Ajustes</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ========================================================
+       MODAL: REGISTRO RÁPIDO CON CATEGORÍAS ESPECÍFICAS
+       ======================================================== -->
+  <div id="txModal" class="hidden fixed inset-0 z-50 flex items-end justify-center p-0 bg-black/85 backdrop-blur-sm transition-opacity">
+    <div class="w-full max-w-md bg-[#0e1422] border-t border-white/10 rounded-t-[2rem] p-5 modal-bottom-sheet max-h-[92vh] overflow-y-auto no-scrollbar shadow-2xl">
+      
+      <!-- Drag Handle Bar for native mobile feel -->
+      <div class="drag-handle-bar"></div>
+
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-white/10">
+        <div>
+          <h3 id="txModalTitle" class="text-sm font-extrabold text-white">Registrar Movimiento</h3>
+          <p class="text-[10px] text-slate-400">Impacta el presupuesto unificado</p>
+        </div>
+        <button onclick="app.closeTransactionModal()" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-slate-400 hover:text-white touch-press -mr-2">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- REQUERIMIENTO 5: TOGGLE VISUAL SEPARADO DE GASTO E INGRESO -->
+      <div class="flex items-center space-x-2 my-3 p-1 rounded-2xl bg-slate-900 border border-white/10">
+        <button type="button" id="txTypeExpenseBtn" onclick="app.setModalTxType('gasto')" 
+                class="flex-1 min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500 text-white shadow-md shadow-rose-500/25 transition-all touch-press flex items-center justify-center space-x-1.5">
+          <i data-lucide="minus-circle" class="w-4 h-4"></i>
+          <span>Gasto</span>
+        </button>
+        <button type="button" id="txTypeIncomeBtn" onclick="app.setModalTxType('ingreso')" 
+                class="flex-1 min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition-all touch-press flex items-center justify-center space-x-1.5">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          <span>Ingreso</span>
+        </button>
+      </div>
+
+      <!-- Formulario de Movimiento -->
+      <form id="transactionForm" onsubmit="app.handleSaveTransaction(event)" class="space-y-4">
+        
+        <!-- Big Touch Amount Input -->
+        <div class="text-center py-2 bg-white/[0.02] rounded-2xl border border-white/5">
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Monto ($)</label>
+          <div class="relative inline-flex items-center justify-center">
+            <span id="txCurrencySymbol" class="text-3xl font-extrabold text-slate-400 mr-1.5">$</span>
+            <input type="number" id="txAmountInput" placeholder="0" step="any" required autofocus
+                   class="w-56 bg-transparent text-center text-4xl font-black text-white focus:outline-none tabular-nums placeholder-slate-600" />
+          </div>
+          <!-- Quick Amount Buttons (Touch >= 44px) -->
+          <div class="flex items-center justify-center space-x-2 mt-2 px-2">
+            <button type="button" onclick="app.addAmount(10000)" class="min-h-[44px] px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-300 border border-white/5 touch-press">+10k</button>
+            <button type="button" onclick="app.addAmount(50000)" class="min-h-[44px] px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-300 border border-white/5 touch-press">+50k</button>
+            <button type="button" onclick="app.addAmount(100000)" class="min-h-[44px] px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-slate-300 border border-white/5 touch-press">+100k</button>
+            <button type="button" onclick="app.clearAmount()" class="min-h-[44px] px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold text-rose-400 border border-white/5 touch-press">Borrar</button>
+          </div>
+        </div>
+
+        <!-- REQUERIMIENTO 5: CATEGORÍAS ESPECÍFICAS DESTACADAS -->
+        <div>
+          <label class="block text-xs font-bold text-slate-200 mb-2">Selecciona la Categoría</label>
+          <div id="txCategoryGrid" class="grid grid-cols-2 gap-2">
+            <!-- Inyectadas dinámicamente con Servicios, Administración, Moto, Gasolina, Mercado, Otros -->
+          </div>
+          <input type="hidden" id="txSelectedCategory" value="Servicios públicos" />
+        </div>
+
+        <!-- REQUERIMIENTO 2: PERSONALIZACIÓN EXCLUSIVA PARA GIL & ALE -->
+        <div>
+          <label class="block text-xs font-bold text-slate-200 mb-1.5">¿Quién realizó el movimiento?</label>
+          <div class="grid grid-cols-3 gap-2" id="txPaidByGrid">
+            <button type="button" onclick="app.setTxPaidBy('member1')" id="paidByBtn-member1" class="min-h-[44px] py-2.5 px-3 rounded-xl border border-emerald-500/50 bg-emerald-500/20 text-emerald-300 text-xs font-bold flex items-center justify-center touch-press">
+              <span id="paidByLabel1">Gil</span>
+            </button>
+            <button type="button" onclick="app.setTxPaidBy('member2')" id="paidByBtn-member2" class="min-h-[44px] py-2.5 px-3 rounded-xl border border-white/10 bg-slate-900 text-slate-300 text-xs font-bold flex items-center justify-center touch-press">
+              <span id="paidByLabel2">Ale</span>
+            </button>
+            <button type="button" onclick="app.setTxPaidBy('shared')" id="paidByBtn-shared" class="min-h-[44px] py-2.5 px-3 rounded-xl border border-white/10 bg-slate-900 text-slate-300 text-xs font-bold flex items-center justify-center touch-press">
+              <span>Ambos</span>
+            </button>
+          </div>
+          <input type="hidden" id="txSelectedPaidBy" value="Gil" />
+          <p class="text-[10px] text-slate-400 text-center mt-1 font-medium">
+            Bitácora informativa • Sin saldos pendientes ni divisiones.
+          </p>
+        </div>
+
+        <!-- Fecha y Nota -->
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">Fecha</label>
+            <input type="date" id="txDateInput" required class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs font-medium text-white focus:outline-none focus:border-emerald-500" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-1">Detalle / Nota</label>
+            <input type="text" id="txDescriptionInput" placeholder="Ej: Pago quincenal" class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          </div>
+        </div>
+
+        <!-- Submit Button (Touch >= 48px) -->
+        <div class="pt-2">
+          <button type="submit" id="txSubmitBtn" class="w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-white font-black text-sm touch-press shadow-lg shadow-rose-500/25 flex items-center justify-center space-x-2">
+            <i data-lucide="check" class="w-5 h-5"></i>
+            <span>Guardar Gasto</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       MODAL: INSTALACIÓN PWA GUIADA (IOS & ANDROID)
+       ======================================================== -->
+  <div id="pwaInstallModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+    <div class="w-full max-w-sm bg-[#0e1422] border border-white/15 rounded-3xl p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <img src="./icons/icon.svg" class="w-10 h-10 rounded-2xl shadow-md" alt="DuoControl" />
+          <div>
+            <h3 class="text-sm font-bold text-white">Instalar DuoControl</h3>
+            <p class="text-[11px] text-slate-400">PWA para Gil &amp; Ale</p>
+          </div>
+        </div>
+        <button onclick="app.closeInstallModal()" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-400 hover:text-white touch-press">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Android Direct Install Button -->
+      <div id="androidInstallSection" class="hidden space-y-2">
+        <p class="text-xs text-slate-300">
+          Instala la aplicación en tu pantalla de inicio para abrirla sin barra de navegador.
+        </p>
+        <button onclick="app.executeInstallPrompt()" class="w-full min-h-[44px] py-3 rounded-2xl bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center space-x-1.5 touch-press shadow-lg shadow-emerald-500/30">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>Instalar Ahora</span>
+        </button>
+      </div>
+
+      <!-- iOS Safari Step-by-Step Instructions -->
+      <div id="iosInstallSection" class="space-y-3">
+        <p class="text-xs text-slate-300">
+          En tu iPhone (Safari), sigue estos 2 sencillos pasos:
+        </p>
+        <div class="space-y-2 text-xs text-slate-200">
+          <div class="flex items-center space-x-3 p-3 rounded-xl bg-white/5 border border-white/10 min-h-[44px]">
+            <span class="w-6 h-6 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-xs font-bold">1</span>
+            <div class="flex items-center space-x-1.5">
+              <span>Toca</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-800 border border-white/10 font-bold text-emerald-400">Compartir ⎙</span>
+              <span>en Safari.</span>
+            </div>
+          </div>
+          <div class="flex items-center space-x-3 p-3 rounded-xl bg-white/5 border border-white/10 min-h-[44px]">
+            <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">2</span>
+            <div class="flex items-center space-x-1.5">
+              <span>Selecciona</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-800 border border-white/10 font-bold text-white">"Añadir a inicio" ➕</span>
+            </div>
+          </div>
+        </div>
+        <button onclick="app.closeInstallModal()" class="w-full min-h-[44px] py-3 rounded-xl bg-white/10 text-slate-200 font-bold text-xs touch-press">
+          ¡Listo!
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastNotification" class="fixed top-5 left-1/2 -translate-x-1/2 z-50 hidden items-center space-x-2 px-4 py-3 rounded-2xl bg-slate-900/95 border border-emerald-500/40 text-emerald-300 text-xs font-bold shadow-2xl backdrop-blur-md transition-all">
+    <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+    <span id="toastMessage">Operación exitosa</span>
+  </div>
+
+  <!-- Main Application Logic Script -->
+  <script src="./app.js"></script>
+
+  <!-- PWA Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('[ServiceWorker] Registrado con éxito para Gil & Ale:', reg.scope))
+          .catch(err => console.warn('[ServiceWorker] Error en registro:', err));
+      });
+    }
+  </script>
+</body>
+</html>

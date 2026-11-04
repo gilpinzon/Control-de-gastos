@@ -1,0 +1,14 @@
+{
+  "name": "duocontrol-pwa",
+  "version": "1.0.0",
+  "description": "Presupuesto Unificado Gil & Ale conectado a Neon PostgreSQL",
+  "main": "api/status.js",
+  "scripts": {
+    "start": "npx serve ."
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "dotenv": "^16.4.7"
+  }
+}
+
