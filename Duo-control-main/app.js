@@ -797,7 +797,6 @@ class DuoControlApp {
         .then(() => this.updateNeonStatus(true))
         .catch(err => console.warn('Aviso al desmarcar en Neon:', err));
     }
-    }
   }
 
   // =========================================================================

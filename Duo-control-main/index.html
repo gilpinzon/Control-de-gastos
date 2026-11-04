@@ -42,8 +42,13 @@
     }
   </script>
 
-  <!-- Lucide Icons -->
+  <!-- Lucide Icons con fallback jsDelivr -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    if (!window.lucide) {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.js"><\/script>');
+    }
+  </script>
 
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -898,15 +903,19 @@
   <!-- Main Application Logic Script -->
   <script src="./app.js"></script>
 
-  <!-- PWA Service Worker Registration -->
+  <!-- PWA Service Worker Registration & Icon Renderer -->
   <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (window.lucide) lucide.createIcons();
+    });
+    window.addEventListener('load', () => {
+      if (window.lucide) lucide.createIcons();
+      if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('./sw.js')
           .then(reg => console.log('[ServiceWorker] Registrado con éxito para Gil & Ale:', reg.scope))
           .catch(err => console.warn('[ServiceWorker] Error en registro:', err));
-      });
-    }
+      }
+    });
   </script>
 </body>
 
