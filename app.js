@@ -9,7 +9,7 @@ function generateUUID() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
@@ -114,6 +114,9 @@ class DuoControlApp {
     this.checkNeonStatus();
     this.syncFromNeon();
 
+    // Manejo de accesos directos PWA (Shortcuts en iOS / Android)
+    this.handleUrlShortcuts();
+
     if (window.lucide) {
       lucide.createIcons();
     }
@@ -202,7 +205,7 @@ class DuoControlApp {
   switchTab(tabId) {
     this.state.activeTab = tabId;
     const tabs = ['dashboard', 'market', 'balance', 'settings'];
-    
+
     tabs.forEach(t => {
       const el = document.getElementById(`tab-${t}`);
       const btn = document.getElementById(`navBtn-${t}`);
@@ -341,8 +344,8 @@ class DuoControlApp {
       if (totalIncome === 0 && totalExpense === 0) {
         pRight.textContent = 'Fondo listo e iniciado en ceros';
       } else {
-        pRight.textContent = netBalance >= 0 
-          ? `${this.formatCurrency(netBalance)} restante en el fondo` 
+        pRight.textContent = netBalance >= 0
+          ? `${this.formatCurrency(netBalance)} restante en el fondo`
           : `Déficit: ${this.formatCurrency(Math.abs(netBalance))}`;
       }
     }
@@ -713,11 +716,11 @@ class DuoControlApp {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newItem)
       })
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.success) this.updateNeonStatus(true);
-      })
-      .catch(err => console.warn('Aviso al añadir a Neon:', err));
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) this.updateNeonStatus(true);
+        })
+        .catch(err => console.warn('Aviso al añadir a Neon:', err));
     }
   }
 
@@ -750,8 +753,8 @@ class DuoControlApp {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: id, isPurchased: isPurchased })
       })
-      .then(() => this.updateNeonStatus(true))
-      .catch(err => console.warn('Aviso al actualizar en Neon:', err));
+        .then(() => this.updateNeonStatus(true))
+        .catch(err => console.warn('Aviso al actualizar en Neon:', err));
     }
   }
 
@@ -1105,8 +1108,157 @@ class DuoControlApp {
   }
 
   // =========================================================================
-  // MODAL DE REGISTRO RÁPIDO EN EL FONDO COMÚN
+  // MODAL DE REGISTRO RÁPIDO EN EL FONDO COMÚN & ESCÁNER DE FACTURAS ÍSIMO
   // =========================================================================
+
+  handleUrlShortcuts() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get('action');
+      const tab = params.get('tab');
+
+      if (action === 'new_expense') {
+        setTimeout(() => this.openTransactionModal('gasto'), 350);
+      } else if (action === 'new_income') {
+        setTimeout(() => this.openTransactionModal('ingreso'), 350);
+      } else if (tab === 'market') {
+        this.switchTab('market');
+      } else if (tab === 'unified') {
+        this.switchTab('unified');
+      }
+    } catch (e) {
+      console.warn('Atajos de URL no disponibles:', e);
+    }
+  }
+
+  resetReceiptScannerUI() {
+    const statusBox = document.getElementById('receiptScanningStatus');
+    const alertBox = document.getElementById('receiptBlurryAlert');
+    const successBox = document.getElementById('receiptSuccessChip');
+    const fileInput = document.getElementById('receiptFileInput');
+    if (statusBox) statusBox.classList.add('hidden');
+    if (alertBox) alertBox.classList.add('hidden');
+    if (successBox) successBox.classList.add('hidden');
+    if (fileInput) fileInput.value = '';
+  }
+
+  triggerReceiptScan() {
+    const fileInput = document.getElementById('receiptFileInput');
+    if (fileInput) {
+      fileInput.value = '';
+      fileInput.click();
+    }
+  }
+
+  focusManualAmount() {
+    const alertBox = document.getElementById('receiptBlurryAlert');
+    if (alertBox) alertBox.classList.add('hidden');
+    const amtInput = document.getElementById('txAmountInput');
+    if (amtInput) {
+      setTimeout(() => {
+        amtInput.focus();
+        amtInput.select();
+      }, 100);
+    }
+  }
+
+  selectCategoryByName(catName) {
+    const hiddenInput = document.getElementById('txSelectedCategory');
+    if (hiddenInput) hiddenInput.value = catName;
+
+    document.querySelectorAll('.tx-cat-card').forEach(b => {
+      const label = b.querySelector('span')?.textContent?.trim();
+      if (label === catName) {
+        b.className = 'tx-cat-card min-h-[64px] p-3 rounded-2xl border border-emerald-500/60 bg-emerald-500/20 text-white flex flex-col items-center justify-center text-center touch-press transition-all';
+      } else {
+        b.className = 'tx-cat-card min-h-[64px] p-3 rounded-2xl border border-white/10 bg-slate-900/80 text-slate-300 flex flex-col items-center justify-center text-center touch-press hover:bg-white/10 transition-all';
+      }
+    });
+  }
+
+  async handleReceiptFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const statusBox = document.getElementById('receiptScanningStatus');
+    const alertBox = document.getElementById('receiptBlurryAlert');
+    const successBox = document.getElementById('receiptSuccessChip');
+    const successMsg = document.getElementById('receiptSuccessMsg');
+    const blurryMsg = document.getElementById('receiptBlurryMsg');
+
+    if (statusBox) statusBox.classList.remove('hidden');
+    if (alertBox) alertBox.classList.add('hidden');
+    if (successBox) successBox.classList.add('hidden');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/scan-receipt', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (statusBox) statusBox.classList.add('hidden');
+
+      if (data && data.success && data.amount) {
+        // Escaneo exitoso y nítido
+        const amtInput = document.getElementById('txAmountInput');
+        if (amtInput) {
+          amtInput.value = data.amount;
+        }
+
+        // Seleccionar categoría de mercado
+        this.selectCategoryByName('Mercado / Supermercado');
+
+        // Prellenar detalle
+        const descInput = document.getElementById('txDescriptionInput');
+        if (descInput && !descInput.value) {
+          descInput.value = data.description || 'Compra Ísimo';
+        }
+
+        // Mostrar chip de confirmación
+        if (successBox) {
+          if (successMsg) {
+            successMsg.textContent = `✓ Total detectado: $${Number(data.amount).toLocaleString('es-CO')} COP`;
+          }
+          successBox.classList.remove('hidden');
+        }
+
+        if (window.lucide) lucide.createIcons();
+        if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+
+      } else {
+        // Foto borrosa o dudosa: Activar flujo de respaldo
+        if (alertBox) {
+          if (blurryMsg && data.message) {
+            blurryMsg.textContent = data.message;
+          }
+          alertBox.classList.remove('hidden');
+        }
+        // Enfocar el campo numérico en COP para registrar al instante
+        const amtInput = document.getElementById('txAmountInput');
+        if (amtInput) {
+          setTimeout(() => amtInput.focus(), 150);
+        }
+        if (window.lucide) lucide.createIcons();
+        if (navigator.vibrate) navigator.vibrate(100);
+      }
+
+    } catch (err) {
+      console.warn('Error al procesar tirilla:', err);
+      if (statusBox) statusBox.classList.add('hidden');
+      if (alertBox) {
+        if (blurryMsg) {
+          blurryMsg.textContent = 'No se pudo conectar con el escáner de recibos. Escribe el total manualmente.';
+        }
+        alertBox.classList.remove('hidden');
+      }
+      this.focusManualAmount();
+      if (window.lucide) lucide.createIcons();
+    }
+  }
 
   openTransactionModal(type = 'gasto') {
     this.modalTxType = type;
@@ -1115,6 +1267,7 @@ class DuoControlApp {
 
     this.setModalTxType(type);
     this.renderModalCategories();
+    this.resetReceiptScannerUI();
 
     const amtInput = document.getElementById('txAmountInput');
     if (amtInput) {
@@ -1157,6 +1310,16 @@ class DuoControlApp {
     }
 
     this.renderModalCategories();
+
+    const scannerContainer = document.getElementById('receiptScannerContainer');
+    if (scannerContainer) {
+      if (type === 'gasto') {
+        scannerContainer.classList.remove('hidden');
+      } else {
+        scannerContainer.classList.add('hidden');
+      }
+    }
+
     if (window.lucide) lucide.createIcons();
   }
 
@@ -1278,11 +1441,11 @@ class DuoControlApp {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTx)
       })
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.success) this.updateNeonStatus(true);
-      })
-      .catch(err => console.warn('Aviso al guardar en Neon:', err));
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) this.updateNeonStatus(true);
+        })
+        .catch(err => console.warn('Aviso al guardar en Neon:', err));
     }
   }
 
@@ -1482,7 +1645,7 @@ class DuoControlApp {
 
     if (badge) {
       badge.textContent = isConn ? '🟢 Neon Cloud' : 'Local Seguro';
-      badge.className = isConn 
+      badge.className = isConn
         ? 'text-[10px] px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30'
         : 'text-[10px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-semibold';
     }

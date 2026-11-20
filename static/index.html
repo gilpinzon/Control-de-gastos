@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invetario — Somex | Gestión Integral de Activos TIC</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23006837' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10'/%3E%3Cpath d='m9 12 2 2 4-4'/%3E%3C/svg%3E">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            somex: {
+              primary: '#006837',    /* Verde Corporativo Oscuro Somex */
+              primaryDark: '#00522c',
+              accent: '#16A34A',     /* Verde Somex */
+              accentDark: '#008F4C',
+              bg: '#F3F5F7',         /* Gris muy claro intranet Nutrinet */
+              card: '#FFFFFF',
+              border: '#E2E8F0',
+              textDark: '#1E293B',
+              textMuted: '#64748B'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Estilos Corporativos Somex Locales (Offline / Alto Contraste) -->
+  <link rel="stylesheet" href="/static/css/styles.css">
+
+  <!-- Motor de Iconos Somex Local (100% Offline / Nativo) -->
+  <script src="/static/js/icons.js"></script>
+
+  <!-- html5-qrcode Local para Escaneo con Cámara Web y Celular (100% Offline) -->
+  <script src="/static/js/html5-qrcode.min.js"></script>
+
+  <style>
+    body {
+      background-color: #F3F5F7;
+      color: #1E293B;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      overflow-x: hidden;
+    }
+    .kpi-card:hover {
+      border-color: #006837;
+      transform: translateY(-2px);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #F1F5F9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #CBD5E1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #006837;
+    }
+    #qr-camera-reader video {
+      border-radius: 0.75rem;
+      object-fit: cover;
+      width: 100% !important;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased bg-[#F3F5F7] text-slate-800">
+
+  <!-- ======================================================================== -->
+  <!-- PANTALLA REAL DE INICIO DE SESIÓN (LOGIN SCREEN CORPORATIVO SOMEX)       -->
+  <!-- ======================================================================== -->
+  <div id="login-modal-overlay" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="relative bg-white border border-slate-200 rounded-2xl max-w-md w-full p-6 sm:p-7 shadow-2xl space-y-5 text-slate-800">
+      <button type="button" onclick="hideLoginScreen()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer" title="Cerrar y continuar navegando">
+        <i data-lucide="x" class="h-4 w-4"></i>
+      </button>
+      
+      <!-- Logo Somex Nutrinet -->
+      <div class="text-center space-y-1.5">
+        <div class="h-12 w-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#006837] mx-auto shadow-sm">
+          <i data-lucide="shield-check" class="h-7 w-7"></i>
+        </div>
+        <h1 class="text-xl font-bold text-slate-900 tracking-tight">Invetario <span class="text-xs px-2 py-0.5 rounded bg-[#006837] text-white font-semibold">SOMEX</span></h1>
+        <p class="text-xs text-slate-500">Intranet Nutrinet • Control Integral de Activos TIC</p>
+      </div>
+
+      <!-- Formulario de Login -->
+      <form onsubmit="handleLoginSubmit(event)" class="space-y-3.5 text-xs">
+        <div id="login-error-msg" class="hidden p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs"></div>
+
+        <div>
+          <label class="block text-slate-700 font-medium mb-1">Correo Electrónico Corporativo</label>
+          <div class="relative">
+            <i data-lucide="mail" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"></i>
+            <input
+              type="email"
+              id="login-email"
+              required
+              placeholder="usuario@somex.com"
+              class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#006837] focus:bg-white focus:ring-1 focus:ring-[#006837] transition"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-700 font-medium mb-1">Contraseña</label>
+          <div class="relative">
+            <i data-lucide="lock" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400"></i>
+            <input
+              type="password"
+              id="login-password"
+              required
+              placeholder="••••••••"
+              class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#006837] focus:bg-white focus:ring-1 focus:ring-[#006837] transition"
+            />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          id="login-submit-btn"
+          class="w-full py-2.5 rounded-xl font-bold text-xs bg-[#006837] hover:bg-[#00522c] text-white transition flex items-center justify-center space-x-2 shadow-md shadow-emerald-900/10 cursor-pointer"
+        >
+          <i data-lucide="log-in" class="h-3.5 w-3.5"></i>
+          <span>Ingresar al Sistema</span>
+        </button>
+      </form>
+
+      <!-- Cuentas predeterminadas de prueba (3 Perfiles) -->
+      <div class="border-t border-slate-200 pt-3 text-[11px] space-y-1.5 text-slate-600">
+        <span class="font-semibold text-slate-700 block mb-1">Perfiles de acceso Somex:</span>
+        <div class="grid grid-cols-1 gap-1 text-[10px]">
+          <button type="button" onclick="fillLoginForm('admin@somex.com', 'admin1234')" class="text-left p-1.5 rounded-lg bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 flex items-center justify-between transition cursor-pointer">
+            <span>🛡️ <strong>Administrador:</strong> admin@somex.com</span>
+            <span class="text-slate-500 font-mono">admin1234</span>
+          </button>
+          <button type="button" onclick="fillLoginForm('auxiliar@somex.com', 'auxiliar1234')" class="text-left p-1.5 rounded-lg bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 flex items-center justify-between transition cursor-pointer">
+            <span>🔧 <strong>Auxiliar TIC:</strong> auxiliar@somex.com</span>
+            <span class="text-slate-500 font-mono">auxiliar1234</span>
+          </button>
+          <button type="button" onclick="fillLoginForm('auditor@somex.com', 'auditor1234')" class="text-left p-1.5 rounded-lg bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 flex items-center justify-between transition cursor-pointer">
+            <span>👁️ <strong>Auditoría TIC:</strong> auditor@somex.com</span>
+            <span class="text-slate-500 font-mono">auditor1234</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======================================================================== -->
+  <!-- BARRA DE NAVEGACIÓN SUPERIOR (NAVBAR VERDE CORPORATIVO SOMEX #006837)    -->
+  <!-- ======================================================================== -->
+  <header class="bg-[#006837] text-white sticky top-0 z-30 shadow-md">
+    <div class="w-full max-w-[98%] mx-auto px-2 sm:px-4">
+      <div class="flex items-center justify-between min-h-[3.5rem] py-1.5 flex-wrap gap-y-2 gap-x-3">
+        
+        <!-- Logo y Módulo Central Somex -->
+        <div class="flex items-center space-x-2.5 flex-shrink-0">
+          <div class="h-9 w-9 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center text-white shadow-sm flex-shrink-0">
+            <i data-lucide="shield-check" class="h-5 w-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <span class="font-bold text-base text-white tracking-tight">Invetario</span>
+              <span class="text-[9.5px] px-2 py-0.5 rounded-full bg-white text-[#006837] font-extrabold uppercase tracking-wide">
+                SOMEX
+              </span>
+            </div>
+            <p class="text-[10px] text-emerald-100 hidden sm:block">Intranet Nutrinet • Gestión de Activos TIC</p>
+          </div>
+        </div>
+
+        <!-- Pestañas de Navegación del Módulo Central (SIEMPRE VISIBLE Y RESPONSIVO) -->
+        <nav class="flex items-center space-x-1 bg-[#00522c] border border-white/10 p-1 rounded-xl text-xs overflow-x-auto max-w-full order-3 xl:order-2 w-full xl:w-auto justify-start xl:justify-center">
+          <button 
+            onclick="switchMainModule('inventory')" 
+            id="nav-btn-inventory" 
+            class="px-2.5 sm:px-3 py-1.5 rounded-lg font-semibold bg-white text-[#006837] transition flex items-center space-x-1.5 shadow-sm whitespace-nowrap cursor-pointer flex-shrink-0"
+          >
+            <i data-lucide="laptop" class="h-3.5 w-3.5"></i>
+            <span>Control de Activos</span>
+          </button>
+          
+          <button 
+            onclick="switchMainModule('qr-audit')" 
+            id="nav-btn-qr-audit" 
+            class="px-2.5 sm:px-3 py-1.5 rounded-lg font-medium text-emerald-100 hover:text-white hover:bg-white/10 transition flex items-center space-x-1.5 whitespace-nowrap cursor-pointer flex-shrink-0"
+          >
+            <i data-lucide="qr-code" class="h-3.5 w-3.5"></i>
+            <span>Inventario TIC</span>
+          </button>
+
+          <button 
+            onclick="switchMainModule('gallery')" 
+            id="nav-btn-gallery" 
+            class="px-2.5 sm:px-3 py-1.5 rounded-lg font-medium text-emerald-100 hover:text-white hover:bg-white/10 transition flex items-center space-x-1.5 whitespace-nowrap cursor-pointer flex-shrink-0"
+          >
+            <i data-lucide="camera" class="h-3.5 w-3.5"></i>
+            <span>Fotografías</span>
+          </button>
+
+          <button 
+            onclick="switchMainModule('bajas')" 
+            id="nav-btn-bajas" 
+            class="px-2.5 sm:px-3 py-1.5 rounded-lg font-medium text-emerald-100 hover:text-white hover:bg-white/10 transition flex items-center space-x-1.5 whitespace-nowrap cursor-pointer flex-shrink-0"
+          >
+            <i data-lucide="archive" class="h-3.5 w-3.5"></i>
+            <span>Activos Dados de Baja</span>
+          </button>
+
+          <button 
+            onclick="switchMainModule('reports')" 
+            id="nav-btn-reports" 
+            class="px-2.5 sm:px-3 py-1.5 rounded-lg font-medium text-emerald-100 hover:text-white hover:bg-white/10 transition flex items-center space-x-1.5 whitespace-nowrap cursor-pointer flex-shrink-0"
+          >
+            <i data-lucide="bar-chart-3" class="h-3.5 w-3.5"></i>
+            <span>Reportes</span>
+          </button>
+        </nav>
+
+        <!-- Acciones, Gestión de Usuarios y Perfil de Usuario Real -->
+        <div class="flex items-center space-x-2 order-2 xl:order-3 flex-shrink-0">
+          
+          <!-- Botón Sincronizar GLPI (Solo Admin) -->
+          <button
+            id="btn-sync-glpi"
+            onclick="syncGLPI()"
+            class="inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-[#00522c] hover:bg-[#004223] text-emerald-100 hover:text-white border border-white/20 transition shadow-sm cursor-pointer"
+            title="Sincronización silenciosa con GLPI Somex"
+          >
+            <i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-emerald-200"></i>
+            <span class="hidden lg:inline">Sincronizar GLPI</span>
+          </button>
+
+          <!-- Botón Nuevo Activo (Solo Admin) -->
+          <button
+            id="btn-new-asset"
+            onclick="openAssetModal()"
+            class="inline-flex items-center space-x-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-white hover:bg-emerald-50 text-[#006837] transition shadow-sm cursor-pointer"
+          >
+            <i data-lucide="plus-circle" class="h-3.5 w-3.5 text-[#006837]"></i>
+            <span>+ Nuevo</span>
+          </button>
+
+          <div class="h-5 w-px bg-white/20 hidden sm:block"></div>
+
+          <!-- Botón Panel de Gestión de Usuarios y Roles (Visible solo para Administrador) -->
+          <button
+            id="btn-users-management"
+            onclick="openUsersModal()"
+            class="hidden inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-[#00522c] hover:bg-[#004223] text-emerald-100 hover:text-white border border-white/20 transition shadow-sm cursor-pointer"
+            title="Gestión de Usuarios y Roles Somex"
+          >
+            <i data-lucide="users" class="h-3.5 w-3.5 text-emerald-200"></i>
+            <span class="hidden xl:inline">Usuarios / Roles</span>
+          </button>
+
+          <!-- Perfil de Usuario Activo / Botón de Inicio de Sesión -->
+          <div class="flex items-center space-x-2 bg-[#00522c] border border-white/20 rounded-xl px-2.5 py-1 text-[11px]">
+            <div class="text-right hidden sm:block cursor-pointer" onclick="if (!currentUser) showLoginScreen()">
+              <span id="user-display-name" class="block font-semibold text-white leading-tight">Iniciar Sesión</span>
+              <span id="user-role-badge" class="block text-[9.5px] font-medium leading-tight text-emerald-200">Invitado</span>
+            </div>
+            <button
+              id="user-auth-btn"
+              onclick="if (currentUser) { logout(); } else { showLoginScreen(); }"
+              title="Sesión"
+              class="p-1 rounded-md text-emerald-200 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            >
+              <i data-lucide="log-in" id="auth-icon" class="h-4 w-4"></i>
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- Banner de Solo Lectura (Auxiliar TIC / Auditoría) -->
+  <div id="auditor-banner" class="hidden bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800 flex items-center justify-center space-x-2">
+    <i data-lucide="eye" class="h-4 w-4 text-amber-600"></i>
+    <span id="auditor-banner-text"><strong>Modo Consulta (Solo Lectura):</strong> Puedes consultar inventario, ver fotografías, auditar mediante QR y visualizar actas sin modificar registros.</span>
+  </div>
+
+  <!-- Notificaciones Toast Flotantes (Auto-desaparece a los 3 segundos) -->
+  <div id="toast" class="hidden fixed bottom-5 right-5 z-50 max-w-md shadow-2xl transition-all duration-300">
+    <div id="toast-inner" class="p-3.5 rounded-xl border text-xs flex items-center justify-between space-x-3 bg-white border-slate-200 shadow-xl">
+      <span id="toast-msg" class="font-medium"></span>
+      <button onclick="hideToast()" class="text-slate-400 hover:text-slate-700 font-bold ml-2">✕</button>
+    </div>
+  </div>
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 1: CONTROL DE ACTIVOS (TABLA ERP CORPORATIVA 100% RESPONSIVE)    -->
+  <!-- ======================================================================== -->
+  <section id="module-inventory" class="w-full max-w-[98%] mx-auto px-2 sm:px-4 py-4 space-y-4">
+    
+    <!-- TARJETAS DE INDICADORES (KPIs INTERACTIVOS) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      
+      <!-- Total Activos -->
+      <div 
+        onclick="setFilter('Todos')" 
+        class="kpi-card cursor-pointer bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-sm transition hover:shadow-md"
+        title="Clic para ver todos los activos"
+      >
+        <div>
+          <span class="text-[11px] text-slate-500 font-medium">Total Activos Registrados</span>
+          <p id="kpi-total" class="text-2xl font-bold text-slate-900 mt-0.5">0</p>
+          <span class="text-[10px] text-slate-500">Laptops, Servidores, Celulares, Drones</span>
+        </div>
+        <div class="h-10 w-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
+          <i data-lucide="server" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+      <!-- Verificados y Firmados -->
+      <div 
+        onclick="setFilter('Verificado y Firmado')" 
+        class="kpi-card cursor-pointer bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-sm transition hover:shadow-md"
+        title="Clic para filtrar con documentación completa"
+      >
+        <div>
+          <span class="text-[11px] text-slate-500 font-medium">Verificados y Firmados</span>
+          <p id="kpi-verified" class="text-2xl font-bold text-[#006837] mt-0.5">0</p>
+          <span id="kpi-rate" class="text-[10px] text-emerald-600 font-semibold">0% cumplimiento</span>
+        </div>
+        <div class="h-10 w-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#006837]">
+          <i data-lucide="check-circle-2" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+      <!-- Pendientes de Firma -->
+      <div 
+        onclick="setFilter('Pendiente de Firma')" 
+        class="kpi-card cursor-pointer bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between shadow-sm transition hover:shadow-md"
+        title="Clic para filtrar pendientes de firma"
+      >
+        <div>
+          <span class="text-[11px] text-slate-500 font-medium">Pendientes de Firma</span>
+          <p id="kpi-pending" class="text-2xl font-bold text-amber-600 mt-0.5">0</p>
+          <span class="text-[10px] text-amber-600 font-medium">Falta firma o fecha formal</span>
+        </div>
+        <div class="h-10 w-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+          <i data-lucide="clock" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+      <!-- Sin Documento / Acta (ALERTA TIC INTERACTIVA) -->
+      <div 
+        onclick="setFilter('Sin Acta')" 
+        class="kpi-card cursor-pointer bg-white border border-rose-200 hover:border-rose-400 rounded-xl p-3.5 flex items-center justify-between shadow-sm transition hover:shadow-md group"
+        title="⚠️ Clic para filtrar equipos en alerta"
+      >
+        <div>
+          <div class="flex items-center space-x-1.5">
+            <span class="text-[11px] text-rose-700 font-semibold">Sin Documento / Acta</span>
+            <span class="px-1.5 py-0.2 rounded text-[8.5px] bg-rose-100 text-rose-700 font-bold">ALERTA</span>
+          </div>
+          <p id="kpi-missing" class="text-2xl font-bold text-rose-600 mt-0.5">0</p>
+          <span class="text-[10px] text-rose-600 font-medium group-hover:underline">Filtrar alerta TIC →</span>
+        </div>
+        <div class="h-10 w-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600">
+          <i data-lucide="alert-octagon" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TARJETA CONTENEDORA DE LA TABLA Y HERRAMIENTAS -->
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      
+      <!-- Barra Superior: Filtros Rápidos, Filtro por Sede, Buscador de Colaboradores y Búsqueda -->
+      <div class="p-3.5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-50/60">
+        
+        <!-- Filtros de Estado -->
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button onclick="setFilter('Todos')" id="filter-Todos" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#006837] text-white transition shadow-sm">
+            Todos (<span id="count-all">0</span>)
+          </button>
+          <button onclick="setFilter('Sin Acta')" id="filter-Sin-Acta" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-rose-700 hover:bg-rose-50 border border-rose-200 transition">
+            Sin Acta (<span id="count-sin-acta">0</span>)
+          </button>
+          <button onclick="setFilter('Pendiente de Firma')" id="filter-Pendiente" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-amber-700 hover:bg-amber-50 border border-amber-200 transition">
+            Pendiente Firma (<span id="count-pendiente">0</span>)
+          </button>
+          <button onclick="setFilter('Verificado y Firmado')" id="filter-Verificado" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-[#006837] hover:bg-emerald-50 border border-emerald-200 transition">
+            Doc. Completa (<span id="count-verificado">0</span>)
+          </button>
+        </div>
+
+        <!-- Herramientas: FILTRO POR ESTADO OPERATIVO + TIPO + SEDE + BÚSQUEDA -->
+        <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          
+          <!-- FILTRO DESPLEGABLE POR ESTADO OPERATIVO REAL -->
+          <div class="relative w-full sm:w-48">
+            <i data-lucide="activity" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#006837] pointer-events-none"></i>
+            <select
+              id="filter-operational-status"
+              onchange="setOperationalStatusFilter(this.value)"
+              class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] shadow-sm cursor-pointer"
+            >
+              <option value="Todos">⚡ Todos los Estados</option>
+              <option value="Activo">🟢 Activo</option>
+              <option value="Activo Backup">🔵 Activo Backup</option>
+              <option value="Inactivo - En Revisión">🔧 Inactivo - En Revisión</option>
+              <option value="Inactivo para venta">🏷️ Inactivo para venta</option>
+              <option value="Inactivo - En Bodega">📦 Inactivo - En Bodega</option>
+              <option value="Activo Sin uso">🟡 Activo Sin uso</option>
+              <option value="Inactivo - En Garantía">🛡️ Inactivo - En Garantía</option>
+              <option value="Activo de Baja">🔴 Activo de Baja</option>
+              <option value="Inactivo desechado">🗑️ Inactivo desechado</option>
+            </select>
+          </div>
+
+          <!-- FILTRO DESPLEGABLE POR TIPO DE EQUIPO (20 CATEGORÍAS) -->
+          <div class="relative w-full sm:w-44">
+            <i data-lucide="cpu" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#006837] pointer-events-none"></i>
+            <select
+              id="filter-type"
+              onchange="setTypeFilter(this.value)"
+              autocomplete="off"
+              class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] shadow-sm cursor-pointer"
+            >
+              <option value="Todos" selected>💻 Todos los Dispositivos</option>
+              <option value="Notebook">Notebook</option>
+              <option value="Monitor">Monitor</option>
+              <option value="Celular">Celular</option>
+              <option value="Medidor Proteína">Medidor Proteína</option>
+              <option value="Redes">Redes</option>
+              <option value="Comunicaciones/Audio">Comunicaciones/Audio</option>
+              <option value="Tablets">Tablets</option>
+              <option value="Impresora">Impresora</option>
+              <option value="Desktop/Servidor">Desktop/Servidor</option>
+              <option value="UPS">UPS</option>
+              <option value="Televisor">Televisor</option>
+              <option value="Cámara/Vigilancia">Cámara/Vigilancia</option>
+              <option value="Lectores/Biometría">Lectores/Biometría</option>
+              <option value="Almacenamiento">Almacenamiento</option>
+              <option value="Otros equipos">Otros equipos</option>
+              <option value="Drone">Drone</option>
+              <option value="Video Beam">Video Beam</option>
+              <option value="Periféricos">Periféricos</option>
+              <option value="Aire Acondicionado">Aire Acondicionado</option>
+              <option value="Estructura">Estructura</option>
+            </select>
+          </div>
+
+          <!-- FILTRO DESPLEGABLE POR SEDE REAL (MALAMBO ADMON / MEDELLIN ADMON) -->
+          <div class="relative w-full sm:w-44">
+            <i data-lucide="map-pin" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#006837] pointer-events-none"></i>
+            <select
+              id="filter-sede"
+              onchange="setSedeFilter(this.value)"
+              class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-semibold focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] shadow-sm cursor-pointer"
+            >
+              <option value="Todas">🏢 Todas las Sedes</option>
+              <option value="MALAMBO ADMON">MALAMBO ADMON</option>
+              <option value="MEDELLIN ADMON">MEDELLIN ADMON</option>
+            </select>
+          </div>
+
+          <!-- BUSCADOR AVANZADO INTERACTIVO DE COLABORADORES -->
+          <div class="relative w-full sm:w-60">
+            <div class="relative">
+              <i data-lucide="user-search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#006837]"></i>
+              <input
+                type="text"
+                id="collab-search-input"
+                oninput="onCollabSearchInput(this.value)"
+                onfocus="openCollabDropdown()"
+                placeholder="Filtrar por Colaborador..."
+                class="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] font-medium shadow-sm"
+              />
+              <button
+                id="collab-clear-btn"
+                onclick="clearCollaboratorFilter()"
+                class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Popover Desplegable de Colaboradores -->
+            <div
+              id="collab-dropdown-list"
+              class="hidden absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl z-40 max-h-56 overflow-y-auto text-xs divide-y divide-slate-100"
+            >
+            </div>
+          </div>
+
+          <!-- Buscador Predictivo -->
+          <div class="relative w-full sm:w-56">
+            <i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"></i>
+            <input
+              type="text"
+              id="search-input"
+              oninput="handleSearch(this.value)"
+              placeholder="Buscar placa, serial, nota..."
+              class="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] shadow-sm"
+            />
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Banner de Colaborador Activo -->
+      <div id="collaborator-active-banner" class="hidden px-4 py-2 bg-emerald-50 border-b border-emerald-200 text-[11px] text-[#006837] flex items-center justify-between">
+        <div class="flex items-center space-x-1.5">
+          <i data-lucide="user-check" class="h-3.5 w-3.5 text-[#006837]"></i>
+          <span>Filtrando exclusivamente los activos asignados a: <strong id="active-collaborator-name"></strong></span>
+        </div>
+        <button onclick="clearCollaboratorFilter()" class="text-[10px] text-emerald-800 hover:text-emerald-950 underline font-semibold">
+          Ver todos los equipos
+        </button>
+      </div>
+
+      <!-- TABLA 100% ADAPTABLE SIN SCROLL HORIZONTAL (10 COLUMNAS) -->
+      <div class="w-full">
+        <table class="w-full table-fixed text-left text-xs">
+          <thead class="bg-slate-100 text-[#111827] font-extrabold uppercase tracking-wider border-b-2 border-slate-300 text-[10.5px]">
+            <tr>
+              <th class="py-3 px-2 w-[11%] text-[#111827]">Dispositivo</th>
+              <th class="py-3 px-2 w-[9%] text-[#111827]">Activo</th>
+              <th class="py-3 px-2 w-[12%] text-[#111827]">Serial</th>
+              <th class="py-3 px-2 w-[11%] text-[#111827]">IMEI / ID</th>
+              <th class="py-3 px-2 w-[16%] text-[#111827]">Funcionario</th>
+              <th class="py-3 px-2 w-[10%] text-[#111827]">Cédula</th>
+              <th class="py-3 px-2 w-[13%] text-[#111827]">Estado</th>
+              <th class="py-3 px-2 w-[5%] text-center text-[#111827]">Foto</th>
+              <th class="py-3 px-2 w-[6%] text-[#111827]">Notas</th>
+              <th class="py-3 px-2 w-[7%] text-right text-[#111827]">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="assets-table-body" class="divide-y divide-slate-200 text-[#111827] text-[11px]">
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pie de Tabla Compacto -->
+      <div class="px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 flex justify-between items-center">
+        <span id="footer-count">Inventario TIC Somex</span>
+        <div class="flex items-center space-x-2">
+          <span class="inline-block w-2 h-2 rounded-full bg-[#006837]"></span>
+          <span class="font-medium text-slate-600">Somex S.A. • Inventario TIC</span>
+        </div>
+      </div>
+
+    </div>
+
+  </section>
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 5: REPORTES Y AUDITORÍA ORGANIZACIONAL (REPORTES OFICIALES)     -->
+  <!-- ======================================================================== -->
+  
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 2: INVENTARIO TIC (CONTROL FÍSICO, ESCANEO Y PROGRESO DIGITAL)    -->
+  <!-- ======================================================================== -->
+  <section id="module-qr-audit" class="hidden w-full max-w-[98%] mx-auto px-2 sm:px-4 py-4 space-y-4">
+    
+    <!-- Cabecera de Inventario TIC y Control Físico -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+      <div>
+        <div class="flex items-center space-x-2.5">
+          <div class="p-2 rounded-xl bg-emerald-50 text-[#006837] border border-emerald-200 shadow-sm">
+            <i data-lucide="qr-code" class="h-5 w-5"></i>
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-slate-900 tracking-tight">Inventario TIC — Control Físico y Auditoría Digital</h2>
+            <p class="text-xs text-slate-500">Verificación automatizada en tiempo real, seguimiento de avance y reporte oficial para Control Organizacional</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Acciones: Selector de Ciclo, Botón Reporte PDF y Nueva Ronda -->
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center space-x-1 bg-slate-100 border border-slate-200 p-1 rounded-xl text-xs">
+          <span class="text-slate-500 px-2 text-[11px] font-medium">Ciclo:</span>
+          <button 
+            id="btn-cycle-bimensual" 
+            onclick="setAuditCycle('Bimensual')" 
+            class="px-2.5 py-1 rounded-lg font-bold bg-[#006837] text-white transition text-xs shadow-sm cursor-pointer"
+          >
+            Bimensual
+          </button>
+          <button 
+            id="btn-cycle-semestral" 
+            onclick="setAuditCycle('Semestral')" 
+            class="px-2.5 py-1 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition text-xs cursor-pointer"
+          >
+            Semestral
+          </button>
+        </div>
+
+        <!-- REQUERIMIENTO: BOTÓN GENERAR REPORTE PDF PARA CONTROL ORGANIZACIONAL -->
+        <button
+          id="btn-download-audit-pdf"
+          onclick="downloadAuditPDF()"
+          class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-[#006837] hover:text-white text-[#006837] border border-emerald-200 transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+          title="Generar y descargar informe oficial en PDF para Control Organizacional"
+        >
+          <i data-lucide="file-down" class="h-3.5 w-3.5"></i>
+          <span>Generar Reporte PDF</span>
+        </button>
+
+        <!-- REQUERIMIENTO: BOTÓN NUEVA RONDA (EXCLUSIVO ADMINISTRADOR) -->
+        <button
+          onclick="resetAuditCyclePrompt()"
+          id="btn-reset-audit"
+          class="hidden px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition flex items-center space-x-1 cursor-pointer"
+          title="Reiniciar ronda para comenzar nuevo ciclo (Exclusivo Administrador)"
+        >
+          <i data-lucide="rotate-ccw" class="h-3 w-3 text-rose-600"></i>
+          <span class="hidden sm:inline">Nueva Ronda</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- TARJETAS DE PROGRESO Y MÉTRICAS DINÁMICAS EN TIEMPO REAL -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+      <div class="bg-white border border-slate-200 p-3.5 rounded-xl flex items-center justify-between shadow-sm">
+        <div>
+          <span class="text-[10.5px] text-slate-500 block font-medium">Total Activos a Auditar</span>
+          <span id="audit-kpi-total" class="text-2xl font-bold text-slate-900 font-mono mt-0.5 block">0</span>
+          <span class="text-[9.5px] text-slate-500">Universo activo del ciclo</span>
+        </div>
+        <div class="p-2.5 rounded-xl bg-slate-100 text-slate-700">
+          <i data-lucide="server" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-white border border-emerald-200 p-3.5 rounded-xl flex items-center justify-between shadow-sm">
+        <div>
+          <span class="text-[10.5px] text-[#006837] block font-semibold">Verificados / Escaneados</span>
+          <span id="audit-kpi-scanned" class="text-2xl font-bold text-[#006837] font-mono mt-0.5 block">0</span>
+          <span class="text-[9.5px] text-emerald-600">Presencia confirmada</span>
+        </div>
+        <div class="p-2.5 rounded-xl bg-emerald-50 text-[#006837]">
+          <i data-lucide="check-circle-2" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-white border border-amber-200 p-3.5 rounded-xl flex items-center justify-between shadow-sm">
+        <div>
+          <span class="text-[10.5px] text-amber-700 block font-semibold">Faltantes / Pendientes</span>
+          <span id="audit-kpi-pending" class="text-2xl font-bold text-amber-600 font-mono mt-0.5 block">0</span>
+          <span class="text-[9.5px] text-amber-600">Por ubicar e inspeccionar</span>
+        </div>
+        <div class="p-2.5 rounded-xl bg-amber-50 text-amber-600">
+          <i data-lucide="clock" class="h-5 w-5"></i>
+        </div>
+      </div>
+
+      <div class="bg-white border border-slate-200 p-3.5 rounded-xl flex flex-col justify-between shadow-sm">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[10.5px] text-slate-700 font-semibold">Avance del Ciclo</span>
+          <span id="audit-progress-percent" class="px-2 py-0.5 rounded text-[10.5px] font-bold bg-emerald-50 text-[#006837] border border-emerald-200 font-mono">0%</span>
+        </div>
+        <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+          <div id="audit-progress-bar" class="bg-[#006837] h-full w-0 transition-all duration-500"></div>
+        </div>
+        <span class="text-[9.5px] text-slate-500 mt-1 block">Ronda: <strong id="audit-cycle-label" class="text-slate-700">Bimensual</strong></span>
+      </div>
+    </div>
+
+    <!-- Barra de Escaneo Rápido (100% AUTOMÁTICO - CERO BOTÓN MANUAL) -->
+    <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+      <div class="max-w-xl mx-auto space-y-3.5">
+        <div class="flex items-center justify-between">
+          <label class="block text-xs font-bold text-[#006837] uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="scan" class="h-4 w-4"></i>
+            <span>Escaneo 100% Automatizado de Activos TIC</span>
+          </label>
+          <button
+            id="btn-toggle-camera"
+            onclick="toggleCameraScan()"
+            class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#006837] hover:bg-[#00522c] text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+          >
+            <i data-lucide="camera" class="h-3.5 w-3.5"></i>
+            <span id="btn-toggle-camera-text">Activar Cámara para Escanear QR</span>
+          </button>
+        </div>
+
+        <!-- Visor Embebido de Cámara Web o Celular -->
+        <div id="camera-scanner-wrapper" class="hidden p-3 bg-slate-900 border border-slate-700 rounded-2xl space-y-2 shadow-xl">
+          <div class="flex items-center justify-between text-xs pb-1 border-b border-slate-700">
+            <span class="font-bold text-emerald-400 flex items-center space-x-1.5">
+              <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Cámara Web / Celular Activa (Apunta al código QR)</span>
+            </span>
+            <button onclick="stopCameraScan()" class="text-slate-400 hover:text-white text-xs font-bold cursor-pointer">✕ Cerrar Cámara</button>
+          </div>
+          <div id="qr-camera-reader" class="w-full bg-black rounded-xl overflow-hidden min-h-[220px]"></div>
+          <p class="text-[10px] text-slate-300 text-center">Detecta automáticamente códigos QR de laptops, pantallas, celulares y servidores Somex.</p>
+        </div>
+        
+        <!-- REQUERIMIENTO: ESCANEO 100% AUTOMÁTICO (SE ELIMINÓ EL BOTÓN "VALIDAR") -->
+        <div class="relative w-full">
+          <i data-lucide="qr-code" class="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-[#006837]"></i>
+          <input
+            type="text"
+            id="qr-scan-input"
+            placeholder="Apunta la pistola lectora o escribe el código del activo (Detección instantánea)..."
+            class="w-full pl-10 pr-10 py-2.5 bg-slate-50 border-2 border-emerald-600/40 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#006837] focus:bg-white focus:ring-2 focus:ring-[#006837]/20 font-mono shadow-inner transition"
+            onkeydown="if(event.key === 'Enter') { event.preventDefault(); handleScanQR(); }"
+            oninput="handleScanQRAuto(this.value)"
+          />
+          <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            AUTO
+          </span>
+        </div>
+
+        <p class="text-[11px] text-slate-500 text-center">
+          ⚡ Al detectar el código QR, el equipo <strong>se mueve automáticamente de pendientes a verificados</strong> en tiempo real con su fotografía.
+        </p>
+      </div>
+    </div>
+
+    <!-- PESTAÑAS SECUNDARIAS: VERIFICADOS VS PENDIENTES EN TIEMPO REAL -->
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div class="flex border-b border-slate-200 bg-slate-50/80 px-4 text-xs">
+        <button
+          id="audit-subtab-scanned-btn"
+          onclick="switchAuditSubtab('scanned')"
+          class="py-3 px-4 font-bold text-[#006837] border-b-2 border-[#006837] transition flex items-center space-x-1.5 cursor-pointer"
+        >
+          <i data-lucide="check-circle" class="h-3.5 w-3.5 text-[#006837]"></i>
+          <span>Activos Verificados / Escaneados (<span id="scanned-tab-count">0</span>)</span>
+        </button>
+
+        <button
+          id="audit-subtab-pending-btn"
+          onclick="switchAuditSubtab('pending')"
+          class="py-3 px-4 font-semibold text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer"
+        >
+          <i data-lucide="clock" class="h-3.5 w-3.5 text-amber-600"></i>
+          <span>Pendientes por Verificar (<span id="pending-tab-count">0</span>)</span>
+        </button>
+      </div>
+
+      <div class="p-4">
+        <!-- VISTA 1: ACTIVOS ESCANEADOS (CUADRÍCULA CON FOTO) -->
+        <div id="audit-subview-scanned" class="space-y-3">
+          <div id="scanned-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
+            <!-- Renderizado dinámicamente vía app.js -->
+          </div>
+        </div>
+
+        <!-- VISTA 2: ACTIVOS PENDIENTES (TABLA LISTA DE REVISIÓN SIN BOTÓN MANUAL) -->
+        <div id="audit-subview-pending" class="hidden space-y-3">
+          <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            <table class="w-full table-fixed text-left text-xs">
+              <thead class="bg-slate-100 text-[#111827] font-extrabold uppercase text-[10.5px] border-b-2 border-slate-300">
+                <tr>
+                  <th class="py-3 px-3 w-[18%] text-[#111827]">Dispositivo</th>
+                  <th class="py-3 px-3 w-[17%] text-[#111827]">Activo</th>
+                  <th class="py-3 px-3 w-[20%] text-[#111827]">Serial</th>
+                  <th class="py-3 px-3 w-[28%] text-[#111827]">Funcionario Custodio</th>
+                  <th class="py-3 px-3 w-[17%] text-[#111827]">Estado Doc.</th>
+                </tr>
+              </thead>
+              <tbody id="pending-audit-table-body" class="divide-y divide-slate-200 text-[#111827] text-[11px]">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 5: REPORTES Y AUDITORÍA ORGANIZACIONAL (REPORTES OFICIALES)     -->
+  <!-- ======================================================================== -->
+  
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 3: GALERÍA DE FOTOGRAFÍAS REALES DE ACTIVOS (POR CARPETAS)       -->
+  <!-- ======================================================================== -->
+  <section id="module-gallery" class="hidden w-full max-w-[98%] mx-auto px-2 sm:px-4 py-4 space-y-4">
+    
+    <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+      <div class="flex items-center space-x-3">
+        <div class="p-2.5 rounded-xl bg-emerald-50 text-[#006837] border border-emerald-200 shadow-sm">
+          <i data-lucide="camera" class="h-5 w-5"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-bold text-slate-900 tracking-tight">Galería de Fotografías Reales de Activos</h2>
+          <p class="text-xs text-slate-500">Organización por carpetas de fecha de escaneo y ciclo de auditoría</p>
+        </div>
+      </div>
+
+      <!-- Controles de Galería: Contador y Botón Vaciar Galería (Admin Only) -->
+      <div class="flex items-center space-x-3 text-xs">
+        <div class="text-right">
+          <span id="gallery-total-count" class="font-mono font-extrabold text-[#006837] text-sm block">0</span>
+          <span class="text-slate-500 text-[10.5px]">fotos registradas</span>
+        </div>
+        
+        <!-- Botón administrativo para vaciar toda la galería (Admin Only) -->
+        <button
+          id="btn-delete-all-photos"
+          onclick="confirmDeleteAllPhotos()"
+          class="hidden px-3 py-1.5 text-xs font-bold rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-300 transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+          title="Eliminar todas las fotografías de la galería"
+        >
+          <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
+          <span>Vaciar Toda la Galería</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de Navegación / Breadcrumbs de la Galería -->
+    <div id="gallery-nav-bar" class="bg-white border border-slate-200 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs shadow-sm">
+      <div class="flex items-center space-x-2">
+        <button 
+          id="gallery-back-btn" 
+          onclick="closeGalleryFolder()" 
+          class="hidden inline-flex items-center space-x-1 px-3 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition cursor-pointer shadow-sm"
+        >
+          <i data-lucide="arrow-left" class="h-3.5 w-3.5"></i>
+          <span>← Volver a Carpetas</span>
+        </button>
+        <span id="gallery-breadcrumb" class="font-extrabold text-slate-800 flex items-center space-x-1.5">
+          <i data-lucide="folder" class="h-4 w-4 text-[#006837]"></i>
+          <span>Carpetas por Jornada y Ciclo de Auditoría</span>
+        </span>
+      </div>
+      
+      <!-- Botón de acción para la carpeta actual (Admin Only) -->
+      <button
+        id="btn-delete-current-folder"
+        onclick="confirmDeleteCurrentFolder()"
+        class="hidden px-2.5 py-1 text-xs font-bold rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-300 transition flex items-center space-x-1 shadow-sm cursor-pointer"
+        title="Eliminar todas las fotografías de esta jornada"
+      >
+        <i data-lucide="trash-2" class="h-3 w-3"></i>
+        <span>Vaciar Esta Carpeta</span>
+      </button>
+    </div>
+
+    <!-- Contenedor 1: VISTA DE CARPETAS (Agrupadas por fecha/ciclo) -->
+    <div id="gallery-folders-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <!-- Rellenado dinámicamente con las carpetas -->
+    </div>
+
+    <!-- Contenedor 2: VISTA DE FOTOS DENTRO DE UNA CARPETA SELECCIONADA -->
+    <div id="gallery-photos-container" class="hidden space-y-4">
+      <div id="gallery-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+        <!-- Rellenado dinámicamente -->
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 5: REPORTES Y AUDITORÍA ORGANIZACIONAL (REPORTES OFICIALES)     -->
+  <!-- ======================================================================== -->
+  
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 4: ACTIVOS DADOS DE BAJA (DOBLE DOCUMENTO: ACTA + DISPOSICIÓN)   -->
+  <!-- ======================================================================== -->
+  <section id="module-bajas" class="hidden w-full max-w-[98%] mx-auto px-2 sm:px-4 py-4 space-y-4">
+    
+    <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+      <div class="flex items-center space-x-3">
+        <div class="p-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 shadow-sm">
+          <i data-lucide="archive" class="h-5 w-5"></i>
+        </div>
+        <div>
+          <h2 class="text-base font-bold text-slate-900 tracking-tight">Módulo de Activos Dados de Baja</h2>
+          <p class="text-xs text-slate-500">Control de equipos retirados con soporte dual: Acta de Baja y Certificado de Disposición Final RAEE</p>
+        </div>
+      </div>
+
+      <!-- Botón Tramitar Baja (Admin Only) -->
+      <button
+        id="btn-open-baja-modal"
+        onclick="openBajaModal()"
+        class="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition shadow-sm cursor-pointer"
+      >
+        <i data-lucide="file-minus" class="h-3.5 w-3.5"></i>
+        <span>+ Tramitar Baja de Activo</span>
+      </button>
+    </div>
+
+    <!-- Tabla de Equipos Dados de Baja (Con dos columnas de soporte PDF) -->
+    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div class="w-full">
+        <table class="w-full table-fixed text-left text-xs">
+          <thead class="bg-slate-100 text-[#111827] font-extrabold uppercase tracking-wider border-b-2 border-slate-300 text-[10.5px]">
+            <tr>
+              <th class="py-3 px-3 w-[11%] text-[#111827]">Dispositivo</th>
+              <th class="py-3 px-3 w-[9%] text-[#111827]">Activo</th>
+              <th class="py-3 px-3 w-[13%] text-[#111827]">Serial</th>
+              <th class="py-3 px-3 w-[16%] text-[#111827]">Custodio Anterior</th>
+              <th class="py-3 px-3 w-[11%] text-[#111827]">Fecha Baja</th>
+              <th class="py-3 px-3 w-[18%] text-[#111827]">Motivo de Baja</th>
+              <th class="py-3 px-2 w-[11%] text-center text-[#111827]">Acta Baja</th>
+              <th class="py-3 px-2 w-[11%] text-center text-[#111827]">Disp. Final</th>
+            </tr>
+          </thead>
+          <tbody id="bajas-table-body" class="divide-y divide-slate-200 text-[#111827] text-[11px]">
+          </tbody>
+        </table>
+      </div>
+      <div class="px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 flex justify-between items-center">
+        <span id="bajas-footer-count">0 equipos retirados formalmente</span>
+        <span class="text-amber-700 font-medium">Custodia Ambiental & Certificación RAEE Somex</span>
+      </div>
+    </div>
+
+  </section>
+
+
+
+  <!-- ======================================================================== -->
+  <!-- MÓDULO 5: REPORTES Y AUDITORÍA ORGANIZACIONAL (REPORTES OFICIALES)     -->
+  <!-- ======================================================================== -->
+  <section id="module-reports" class="hidden w-full max-w-[98%] mx-auto px-2 sm:px-4 py-4 space-y-4">
+    
+    <!-- Encabezado del Módulo de Reportes -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm">
+      <div class="flex items-center space-x-3">
+        <div class="p-2.5 rounded-xl bg-emerald-50 text-[#006837] border border-emerald-200 shadow-sm">
+          <i data-lucide="bar-chart-3" class="h-6 w-6"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-base font-bold text-slate-900 tracking-tight">Reporte de Inventario TIC — Sedes Administrativas</h2>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-[#006837] border border-emerald-300 uppercase">Oficial Somex</span>
+          </div>
+          <p class="text-xs text-slate-500">Análisis Consolidado: MALAMBO ADMON y MEDELLIN ADMON • Control Organizacional y Activos Fijos</p>
+        </div>
+      </div>
+
+      <!-- Acciones de Descarga de Reportes -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          onclick="downloadOctubrePdf()"
+          class="inline-flex items-center space-x-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-[#006837] hover:bg-[#00522c] text-white transition shadow-sm cursor-pointer"
+          title="Descargar el Reporte Oficial de Octubre (PDF Original de 18 páginas)"
+        >
+          <i data-lucide="file-down" class="h-4 w-4"></i>
+          <span>Descargar Reporte Octubre (PDF Original)</span>
+        </button>
+
+        <button
+          onclick="downloadAuditReportPDF()"
+          class="inline-flex items-center space-x-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 transition shadow-sm cursor-pointer"
+          title="Generar informe en PDF del estado actual"
+        >
+          <i data-lucide="printer" class="h-4 w-4 text-slate-600"></i>
+          <span>Informe Dinámico PDF</span>
+        </button>
+
+        <button
+          id="btn-reimport-octubre"
+          onclick="triggerReimportOctubre()"
+          class="hidden inline-flex items-center space-x-1 px-2.5 py-2 text-xs font-medium rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 transition shadow-sm"
+          title="Re-sincronizar los 468 activos desde el PDF oficial"
+        >
+          <i data-lucide="refresh-cw" class="h-3.5 w-3.5 text-slate-500"></i>
+          <span class="hidden sm:inline">Re-importar PDF</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- TARJETAS DE RESUMEN EJECUTIVO (COBERTURA TOTAL DEL PDF) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <!-- Total Activos -->
+      <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-slate-500 font-medium">Total de Activos Auditados</span>
+          <div class="h-8 w-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
+            <i data-lucide="layers" class="h-4 w-4"></i>
+          </div>
+        </div>
+        <p id="report-total" class="text-2xl font-black text-slate-900 mt-1">468</p>
+        <span class="text-[10px] text-slate-500">Sedes Malambo y Medellín Admon</span>
+      </div>
+
+      <!-- Escaneados / Verificados -->
+      <div class="bg-white border border-emerald-200 rounded-xl p-3.5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-[#006837] font-semibold">Activos Escaneados (Cumplimiento)</span>
+          <div class="h-8 w-8 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#006837]">
+            <i data-lucide="check-check" class="h-4 w-4"></i>
+          </div>
+        </div>
+        <p id="report-scanned" class="text-2xl font-black text-[#006837] mt-1">415</p>
+        <div class="flex items-center justify-between text-[10px] mt-0.5">
+          <span id="report-scanned-pct" class="font-extrabold text-[#006837]">88.7% verificado</span>
+          <span class="text-slate-400">Presencia física</span>
+        </div>
+      </div>
+
+      <!-- Pendientes -->
+      <div class="bg-white border border-amber-200 rounded-xl p-3.5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-amber-800 font-semibold">Activos Pendientes</span>
+          <div class="h-8 w-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-700">
+            <i data-lucide="clock" class="h-4 w-4"></i>
+          </div>
+        </div>
+        <p id="report-pending" class="text-2xl font-black text-amber-600 mt-1">53</p>
+        <div class="flex items-center justify-between text-[10px] mt-0.5">
+          <span id="report-pending-pct" class="font-extrabold text-amber-700">11.3% pendiente</span>
+          <span class="text-slate-400">Requiere inspección</span>
+        </div>
+      </div>
+
+      <!-- Fecha de Corte -->
+      <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] text-slate-500 font-medium">Fecha de Corte Oficial</span>
+          <div class="h-8 w-8 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
+            <i data-lucide="calendar" class="h-4 w-4"></i>
+          </div>
+        </div>
+        <p id="report-date" class="text-2xl font-black text-slate-900 mt-1">21/10/2026</p>
+        <span class="text-[10px] text-slate-500">Ronda de Cierre Octubre</span>
+      </div>
+    </div>
+
+    <!-- SECCIÓN DE GRÁFICOS ESTADÍSTICOS DE CUMPLIMIENTO -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      
+      <!-- Gráfico 1: Cumplimiento por Sede (MALAMBO vs MEDELLIN) -->
+      <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="map-pin" class="h-4 w-4 text-[#006837]"></i>
+            <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wide">Cumplimiento Físico por Sede</h3>
+          </div>
+          <span class="text-[10px] text-slate-500 font-medium">Meta: 100%</span>
+        </div>
+        <div id="report-sedes-container" class="space-y-3 text-xs">
+          <!-- Renderizado dinámico -->
+        </div>
+      </div>
+
+      <!-- Gráfico 2: Desglose por Estado Operativo (9 Estados Reales) -->
+      <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+          <div class="flex items-center space-x-2">
+            <i data-lucide="activity" class="h-4 w-4 text-[#006837]"></i>
+            <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wide">Distribución por Estado Operativo</h3>
+          </div>
+          <span class="text-[10px] text-slate-500 font-medium">9 Estados de Flota</span>
+        </div>
+        <div id="report-status-container" class="space-y-2 text-xs">
+          <!-- Renderizado dinámico -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Gráfico 3: Desglose por Tipo de Equipo (Top 20 Tecnologías) -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="cpu" class="h-4 w-4 text-[#006837]"></i>
+          <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wide">Desglose y Cumplimiento por Tipo de Equipo</h3>
+        </div>
+        <span class="text-[10px] text-slate-500 font-medium">20 Categorías TIC</span>
+      </div>
+      <div id="report-types-container" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5 text-xs">
+        <!-- Renderizado dinámico -->
+      </div>
+    </div>
+
+    <!-- SECCIÓN DE HISTORIAL DE INVENTARIOS REALIZADOS -->
+    <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-3">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-2.5">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="history" class="h-4 w-4 text-[#006837]"></i>
+          <h3 class="text-xs font-bold text-slate-900 uppercase tracking-wide">Historial de Inventarios y Auditorías Realizadas</h3>
+        </div>
+        <span class="text-[10px] text-slate-500">Registro histórico para Control Organizacional</span>
+      </div>
+      <div id="report-history-container" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <!-- Renderizado dinámico -->
+      </div>
+    </div>
+
+    <!-- LISTADO DE ACTIVOS NO ESCANEADOS (53 ACTIVOS PENDIENTES DEL REPORTE) -->
+    <div class="bg-white border border-amber-200 rounded-xl overflow-hidden shadow-sm space-y-0">
+      <div class="p-3.5 bg-amber-50/70 border-b border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="alert-triangle" class="h-4 w-4 text-amber-700"></i>
+          <h3 class="text-xs font-bold text-amber-900 uppercase tracking-wide">
+            Listado de Activos No Escaneados en el Ciclo (<span id="report-pending-table-count">53</span> Pendientes)
+          </h3>
+        </div>
+        <div class="relative w-full sm:w-64">
+          <i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-amber-700"></i>
+          <input
+            type="text"
+            id="report-pending-search"
+            oninput="filterReportPendingTable(this.value)"
+            placeholder="Buscar entre pendientes..."
+            class="w-full pl-8 pr-3 py-1 text-xs bg-white border border-amber-300 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:border-amber-600 focus:ring-1 focus:ring-amber-600 shadow-sm"
+          />
+        </div>
+      </div>
+      <div class="w-full overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-100 text-[#111827] font-extrabold uppercase tracking-wider border-b-2 border-slate-300 text-[10.5px]">
+            <tr>
+              <th class="py-2.5 px-3">Activo</th>
+              <th class="py-2.5 px-3">Serial</th>
+              <th class="py-2.5 px-3">Sede / Responsable</th>
+              <th class="py-2.5 px-3">Tipo</th>
+              <th class="py-2.5 px-3">Estado Operativo</th>
+              <th class="py-2.5 px-3">Nombre del Equipo</th>
+              <th class="py-2.5 px-3">Motivo / Comentarios</th>
+            </tr>
+          </thead>
+          <tbody id="report-pending-table-body" class="divide-y divide-slate-200 text-[#111827] text-[11px]">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ======================================================================== -->
+  <!-- MODAL DE GESTIÓN DOCUMENTAL, VISOR DE PDFS REAL Y NOTAS                 -->
+  <!-- ======================================================================== -->
+  <div id="doc-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white border border-slate-200 rounded-2xl max-w-4xl w-full max-h-[94vh] overflow-y-auto shadow-2xl flex flex-col text-slate-800">
+      
+      <!-- Cabecera del Modal -->
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur z-10">
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-sm text-slate-900">Gestión Documental del Activo</span>
+            <span id="modal-asset-tag" class="px-2 py-0.5 rounded text-xs font-mono font-bold bg-emerald-50 text-[#006837] border border-emerald-200"></span>
+          </div>
+          <p id="modal-asset-sub" class="text-[11px] text-slate-500 mt-0.5"></p>
+        </div>
+        <button onclick="closeDocModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <!-- Pestañas del Modal -->
+      <div class="flex border-b border-slate-200 px-4 bg-slate-50 text-xs">
+        <button id="tab-btn-validate" onclick="switchModalTab('validate')" class="py-3 px-3.5 font-bold text-[#006837] border-b-2 border-[#006837] transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="file-check" class="h-3.5 w-3.5"></i>
+          <span>Validar / Adjuntar Acta</span>
+        </button>
+        <button id="tab-btn-viewer" onclick="switchModalTab('viewer')" class="py-3 px-3.5 font-medium text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="eye" class="h-3.5 w-3.5"></i>
+          <span>Visor de Actas Adjuntas (PDF)</span>
+        </button>
+        <button id="tab-btn-photo" onclick="switchModalTab('photo')" class="py-3 px-3.5 font-medium text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="camera" class="h-3.5 w-3.5"></i>
+          <span>Fotografía Real</span>
+        </button>
+        <button id="tab-btn-notes" onclick="switchModalTab('notes')" class="py-3 px-3.5 font-medium text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="message-square" class="h-3.5 w-3.5"></i>
+          <span>Notas y Observaciones</span>
+        </button>
+      </div>
+
+      <!-- Contenido del Modal -->
+      <div class="p-4 sm:p-5 space-y-4 flex-1 text-xs">
+        
+        <!-- Ficha Resumen -->
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 grid grid-cols-2 gap-3 text-xs">
+          <div>
+            <span class="text-slate-500 block text-[10px] font-medium">Funcionario Asignado:</span>
+            <span id="modal-resp-name" class="font-semibold text-slate-900 text-xs"></span>
+          </div>
+          <div>
+            <span class="text-slate-500 block text-[10px] font-medium">Cédula de Ciudadanía:</span>
+            <span id="modal-resp-cedula" class="font-mono font-bold text-[#006837] text-xs"></span>
+          </div>
+        </div>
+
+        <!-- PESTAÑA 1: VALIDAR Y ADJUNTAR ACTA -->
+        <div id="tab-content-validate" class="space-y-3">
+          <div id="auditor-upload-blocked" class="hidden p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center space-x-2">
+            <i data-lucide="shield-alert" class="h-4 w-4 shrink-0 text-amber-600"></i>
+            <span><strong>Modo Consulta:</strong> No tienes permisos para adjuntar o modificar documentos. Dirígete a la pestaña <em>"Visor de Actas Adjuntas"</em>.</span>
+          </div>
+
+          <div id="admin-upload-form" class="space-y-3">
+            <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+              <i data-lucide="upload" class="h-3.5 w-3.5 text-[#006837]"></i>
+              <span>Adjuntar Acta Somex TIC-F-001 o Factura (PDF)</span>
+            </h4>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] text-slate-600 font-medium mb-1">Formato / Tipo de Documento:</label>
+                <select id="modal-doc-type" class="w-full px-2.5 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837]">
+                  <option value="Acta TIC-F-001 Entrega de Equipo">Acta TIC-F-001 Entrega de Equipo</option>
+                  <option value="Acta de Préstamo Temporal">Acta de Préstamo Temporal</option>
+                  <option value="Acta de Devolución de Activo">Acta de Devolución de Activo</option>
+                  <option value="Factura de Compra">Factura de Compra</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] text-slate-600 font-medium mb-1">Seleccionar Archivo PDF:</label>
+                <input type="file" id="modal-pdf-file" accept="application/pdf" class="w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-[#006837] hover:file:bg-emerald-100 cursor-pointer" />
+              </div>
+            </div>
+
+            <div id="modal-error-box" class="hidden p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs"></div>
+
+            <button
+              id="btn-run-validation"
+              onclick="uploadAndValidatePDF()"
+              class="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-[#006837] hover:bg-[#00522c] text-white transition flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
+            >
+              <i data-lucide="file-check" class="h-3.5 w-3.5"></i>
+              <span id="btn-run-validation-text">Validar Automáticamente con Motor Python</span>
+            </button>
+          </div>
+
+          <!-- Reporte de Validación -->
+          <div id="validation-report-container" class="hidden space-y-3 pt-2">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                <i data-lucide="file-text" class="h-3.5 w-3.5 text-[#006837]"></i>
+                <span>Reporte de Verificación de Acta</span>
+              </h4>
+              <span id="report-pages-count" class="text-[10px] text-slate-500 font-medium"></span>
+            </div>
+
+            <div id="report-banner" class="p-3.5 rounded-xl border text-xs flex items-start space-x-3">
+              <div id="report-banner-icon" class="mt-0.5"></div>
+              <div>
+                <span id="report-banner-title" class="font-bold block text-xs mb-0.5"></span>
+                <p id="report-banner-summary" class="text-[11px] opacity-90"></p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-0.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-slate-700 flex items-center space-x-1">
+                    <i data-lucide="user-check" class="h-3 w-3 text-[#006837]"></i>
+                    <span>Cédula</span>
+                  </span>
+                  <span id="check-cedula-status"></span>
+                </div>
+                <p class="text-[10px] text-slate-500">Esperada: <span id="check-cedula-exp" class="font-mono text-slate-800"></span></p>
+                <p class="text-[10px] text-slate-500">En PDF: <span id="check-cedula-found" class="font-mono text-slate-800"></span></p>
+              </div>
+
+              <div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-0.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-slate-700 flex items-center space-x-1">
+                    <i data-lucide="hash" class="h-3 w-3 text-[#006837]"></i>
+                    <span>Serial / IMEI</span>
+                  </span>
+                  <span id="check-hw-status"></span>
+                </div>
+                <p class="text-[10px] text-slate-500 truncate">Esperado: <span id="check-hw-exp" class="font-mono text-slate-800"></span></p>
+                <p class="text-[10px] text-slate-500 truncate">Encontrado: <span id="check-hw-found" class="font-mono text-slate-800"></span></p>
+              </div>
+
+              <div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-0.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-slate-700 flex items-center space-x-1">
+                    <i data-lucide="calendar" class="h-3 w-3 text-[#006837]"></i>
+                    <span>Fecha Entrega</span>
+                  </span>
+                  <span id="check-date-status"></span>
+                </div>
+                <p class="text-[10px] text-slate-500">Detectada: <span id="check-date-found" class="font-mono text-slate-800"></span></p>
+              </div>
+
+              <div class="bg-slate-50 border border-slate-200 rounded-lg p-2.5 space-y-0.5">
+                <div class="flex items-center justify-between">
+                  <span class="font-semibold text-slate-700 flex items-center space-x-1">
+                    <i data-lucide="pen-tool" class="h-3 w-3 text-[#006837]"></i>
+                    <span>Firma / Recepción</span>
+                  </span>
+                  <span id="check-sign-status"></span>
+                </div>
+                <p class="text-[10px] text-slate-500 truncate">Evidencia: <span id="check-sign-found" class="font-mono text-slate-800"></span></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- REQUERIMIENTO: PESTAÑA 2 - VISOR REAL DE DOCUMENTOS Y ACTAS EN PDF -->
+        <div id="tab-content-viewer" class="hidden space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+              <i data-lucide="file-text" class="h-3.5 w-3.5 text-[#006837]"></i>
+              <span>Actas y Documentos Adjuntos</span>
+            </h4>
+            <span id="viewer-count" class="text-[10px] text-slate-500 font-medium"></span>
+          </div>
+
+          <div id="modal-history-list" class="space-y-1.5 max-h-36 overflow-y-auto"></div>
+
+          <!-- Visor PDF embebido Real -->
+          <div id="pdf-viewer-wrapper" class="space-y-2 border-t border-slate-200 pt-3">
+            <div class="flex items-center justify-between">
+              <span id="current-viewing-title" class="text-xs font-bold text-[#006837]">Haz clic en "Ver Acta" para previsualizar</span>
+              
+              <!-- Botón oficial de Descarga Real del PDF -->
+              <a 
+                id="btn-open-external-pdf" 
+                href="#" 
+                target="_blank" 
+                download 
+                class="hidden text-xs font-bold text-[#006837] hover:text-[#00522c] bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1 rounded-lg transition flex items-center space-x-1.5 shadow-sm"
+              >
+                <i data-lucide="file-down" class="h-3.5 w-3.5"></i>
+                <span>Descargar PDF</span>
+              </a>
+            </div>
+            
+            <div class="w-full h-96 bg-slate-100 border-2 border-slate-200 rounded-xl overflow-hidden flex items-center justify-center text-slate-500 text-xs shadow-inner">
+              <iframe id="pdf-iframe-viewer" src="about:blank" class="w-full h-full hidden"></iframe>
+              <div id="pdf-placeholder-msg" class="text-center p-6 space-y-2">
+                <i data-lucide="file-search" class="h-8 w-8 mx-auto text-slate-400"></i>
+                <p class="text-xs text-slate-600 font-medium">Selecciona un acta de la lista superior para visualizar el documento PDF real aquí.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PESTAÑA 3: FOTOGRAFÍA REAL DEL ACTIVO -->
+        <div id="tab-content-photo" class="hidden space-y-3">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+              <i data-lucide="camera" class="h-3.5 w-3.5 text-[#006837]"></i>
+              <span>Fotografía Física del Activo</span>
+            </h4>
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div class="w-48 h-36 rounded-xl bg-white border border-slate-200 overflow-hidden flex items-center justify-center shadow-sm">
+              <img id="modal-asset-photo-img" src="" alt="Foto del activo" class="w-full h-full object-cover hidden" />
+              <div id="modal-asset-photo-placeholder" class="text-center p-3 text-slate-400">
+                <i data-lucide="image" class="h-8 w-8 mx-auto text-slate-400 mb-1"></i>
+                <span class="text-[11px]">Sin fotografía</span>
+              </div>
+            </div>
+
+            <div class="flex-1 space-y-2.5">
+              <p class="text-xs text-slate-600">
+                Sube una fotografía real del equipo para evidenciar su estado físico y facilitar su identificación durante las auditorías por escaneo QR.
+              </p>
+              
+              <div id="photo-upload-controls" class="space-y-2">
+                <input type="file" id="modal-photo-file-input" accept="image/*" class="text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-[#006837] hover:file:bg-emerald-100 cursor-pointer" />
+                <button
+                  onclick="uploadAssetPhotoFromModal()"
+                  class="px-3.5 py-1.5 text-xs font-bold rounded-lg bg-[#006837] hover:bg-[#00522c] text-white transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                >
+                  <i data-lucide="upload" class="h-3.5 w-3.5"></i>
+                  <span>Guardar Fotografía</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PESTAÑA 4: NOTAS Y OBSERVACIONES INTERNAS -->
+        <div id="tab-content-notes" class="hidden space-y-3">
+          <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="message-square" class="h-3.5 w-3.5 text-[#006837]"></i>
+            <span>Observaciones y Notas Internas</span>
+          </h4>
+
+          <textarea
+            id="modal-asset-notes-input"
+            rows="4"
+            placeholder="Escribe observaciones sobre el estado, accesorios o transferencias de este equipo..."
+            class="w-full p-3 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837]"
+          ></textarea>
+
+          <div class="flex justify-between items-center">
+            <span id="notes-readonly-notice" class="hidden text-[11px] text-amber-700 italic">Modo consulta: Solo lectura.</span>
+            <button
+              onclick="saveAssetNotes()"
+              id="btn-save-notes"
+              class="px-4 py-2 text-xs font-bold rounded-lg bg-[#006837] hover:bg-[#00522c] text-white transition flex items-center space-x-1.5 ml-auto shadow-sm cursor-pointer"
+            >
+              <i data-lucide="save" class="h-3.5 w-3.5"></i>
+              <span>Guardar Notas</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Pie del Modal -->
+      <div class="p-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <button onclick="closeDocModal()" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer">
+          Cerrar
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======================================================================== -->
+  <!-- MODAL PARA TRAMITAR BAJA (CON DOBLE DOCUMENTO PDF OBLIGATORIO)           -->
+  <!-- ======================================================================== -->
+  <div id="baja-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl text-slate-800">
+      
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="file-minus" class="h-4 w-4 text-amber-600"></i>
+          <h3 class="font-bold text-sm text-slate-900">Tramitar Baja Oficial de Activo</h3>
+        </div>
+        <button onclick="closeBajaModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <form onsubmit="handleDecommissionAsset(event)" class="p-5 space-y-3.5 text-xs">
+        <div>
+          <label class="block text-slate-700 font-medium mb-1 text-[11px]">Seleccionar Activo a dar de baja *</label>
+          <select 
+            id="baja-select-asset" 
+            required 
+            class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs"
+          >
+            <!-- Llenado dinámicamente -->
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Fecha Oficial de Baja *</label>
+            <input 
+              type="date" 
+              id="baja-date-input" 
+              required 
+              class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs"
+            />
+          </div>
+
+          <div>
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Causal / Motivo *</label>
+            <select id="baja-reason-select" class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs">
+              <option value="Obsolescencia tecnológica">Obsolescencia tecnológica</option>
+              <option value="Daño irreparable">Daño irreparable / Falla crítica</option>
+              <option value="Reposición / Renovación">Reposición / Renovación</option>
+              <option value="Pérdida o Hurto">Pérdida o Hurto</option>
+              <option value="Baja ambiental RAEE">Baja ambiental RAEE</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- DOS CAMPOS DE ARCHIVO PDF INDEPENDIENTES -->
+        <div class="space-y-2.5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <div>
+            <label class="block text-slate-800 font-bold mb-1 text-[11px] flex items-center space-x-1">
+              <i data-lucide="file-text" class="h-3.5 w-3.5 text-amber-600"></i>
+              <span>1. Adjuntar Acta de Baja Firmada (PDF) *</span>
+            </label>
+            <input 
+              type="file" 
+              id="baja-pdf-file" 
+              accept="application/pdf" 
+              required 
+              class="w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-amber-100 file:text-amber-800 cursor-pointer"
+            />
+          </div>
+
+          <div class="pt-2 border-t border-slate-200">
+            <label class="block text-slate-800 font-bold mb-1 text-[11px] flex items-center space-x-1">
+              <i data-lucide="shield-check" class="h-3.5 w-3.5 text-[#006837]"></i>
+              <span>2. Adjuntar Certificado de Disposición Final RAEE (PDF) *</span>
+            </label>
+            <input 
+              type="file" 
+              id="disposicion-pdf-file" 
+              accept="application/pdf" 
+              required 
+              class="w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-100 file:text-[#006837] cursor-pointer"
+            />
+          </div>
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t border-slate-200">
+          <button type="button" onclick="closeBajaModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold cursor-pointer">
+            Cancelar
+          </button>
+          <button type="submit" id="btn-submit-baja" class="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm cursor-pointer">
+            Formalizar Retiro y Guardar Documentos
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- ======================================================================== -->
+  <!-- MODAL DE PANEL DE GESTIÓN DE USUARIOS Y ROLES (ADMIN ONLY)               -->
+  <!-- ======================================================================== -->
+  <div id="users-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full max-h-[92vh] overflow-y-auto shadow-2xl text-slate-800">
+      
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur z-10">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="users" class="h-4 w-4 text-[#006837]"></i>
+          <div>
+            <h3 class="font-bold text-sm text-slate-900">Panel de Gestión de Usuarios y Roles</h3>
+            <p class="text-[11px] text-slate-500">Administra cuentas y asigna los 3 perfiles de acceso Somex</p>
+          </div>
+        </div>
+        <button onclick="closeUsersModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <div class="p-4 sm:p-5 space-y-4 text-xs">
+        
+        <!-- Formulario Crear Usuario -->
+        <form onsubmit="handleCreateUser(event)" class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+          <h4 class="font-bold text-xs text-[#006837] flex items-center space-x-1.5">
+            <i data-lucide="user-plus" class="h-3.5 w-3.5"></i>
+            <span>Crear Nuevo Usuario Somex</span>
+          </h4>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div>
+              <label class="block text-[11px] text-slate-600 font-medium mb-1">Nombre Completo *</label>
+              <input type="text" id="new-user-name" required placeholder="Ej: Laura Vargas" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs" />
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-slate-600 font-medium mb-1">Correo Electrónico *</label>
+              <input type="email" id="new-user-email" required placeholder="laura@somex.com" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs" />
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-slate-600 font-medium mb-1">Contraseña *</label>
+              <input type="password" id="new-user-pwd" required placeholder="••••••••" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs" />
+            </div>
+
+            <div>
+              <label class="block text-[11px] text-slate-600 font-medium mb-1">Rol / Perfil *</label>
+              <select id="new-user-role" class="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs font-semibold">
+                <option value="admin">🛡️ Administrador de Inventario (Total)</option>
+                <option value="auxiliar">🔧 Auxiliar TIC (Solo Lectura)</option>
+                <option value="auditor">👁️ Auditoría TIC (Solo Lectura)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="flex justify-end pt-1">
+            <button type="submit" class="px-3.5 py-1.5 rounded-lg bg-[#006837] hover:bg-[#00522c] text-white font-bold text-xs shadow-sm flex items-center space-x-1 cursor-pointer">
+              <i data-lucide="plus" class="h-3 w-3"></i>
+              <span>Guardar Usuario</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Tabla de Usuarios Actuales -->
+        <div class="space-y-2">
+          <h4 class="font-bold text-xs text-slate-800">Usuarios Registrados en el Sistema</h4>
+          <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] border-b border-slate-200">
+                <tr>
+                  <th class="py-2.5 px-3">Nombre</th>
+                  <th class="py-2.5 px-3">Correo</th>
+                  <th class="py-2.5 px-3">Rol Asignado</th>
+                  <th class="py-2.5 px-3 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body" class="divide-y divide-slate-100 text-[11px]">
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="p-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <button onclick="closeUsersModal()" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer">
+          Cerrar Panel
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ======================================================================== -->
+  <!-- MODAL DE REGISTRO DE NUEVO ACTIVO (CON CAMPO SEDE)                       -->
+  <!-- ======================================================================== -->
+  <div id="asset-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+    <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl text-slate-800">
+      
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div class="flex items-center space-x-1.5">
+          <i data-lucide="plus-circle" class="h-4 w-4 text-[#006837]"></i>
+          <h3 class="font-bold text-sm text-slate-900">Registrar Nuevo Activo Somex</h3>
+        </div>
+        <button onclick="closeAssetModal()" class="p-1 rounded-lg text-slate-400 hover:text-slate-700 cursor-pointer">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <form onsubmit="handleCreateAsset(event)" class="p-5 space-y-3.5 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Dispositivo *</label>
+            <select 
+              id="new-asset-type" 
+              onchange="onNewAssetTypeChange(this.value)"
+              class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs"
+            >
+              <option value="Laptop">Laptop</option>
+              <option value="PC de Escritorio">PC de Escritorio</option>
+              <option value="Celular">Celular Corporativo</option>
+              <option value="Tablet">Tablet</option>
+              <option value="Dron">Dron</option>
+              <option value="Televisor / Pantalla">Televisor / Pantalla</option>
+              <option value="Impresora">Impresora</option>
+              <option value="Servidor">Servidor</option>
+              <option value="Switch / Router">Switch / Router</option>
+              <option value="Otro">Otro Dispositivo</option>
+            </select>
+          </div>
+
+          <!-- REQUERIMIENTO: CAMPO SEDE -->
+          <div>
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Sede de Asignación *</label>
+            <select 
+              id="new-asset-sede" 
+              class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] font-semibold text-xs"
+            >
+              <option value="Medellín">Medellín</option>
+              <option value="Malambo">Malambo</option>
+              <option value="Bogotá">Bogotá</option>
+              <option value="Barranquilla">Barranquilla</option>
+              <option value="Cali">Cali</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Activo / Placa *</label>
+            <input type="text" id="new-asset-tag" required placeholder="Ej: 2024-010" class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] font-mono text-xs" />
+          </div>
+
+          <div>
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Serial *</label>
+            <input type="text" id="new-asset-serial" required placeholder="Ej: SN-998822" class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] font-mono text-xs" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div id="container-new-asset-imei" class="hidden">
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">IMEI / ID Secundario (Celular)</label>
+            <input type="text" id="new-asset-imei" placeholder="Ej: 864209041234567" class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] font-mono text-xs" />
+          </div>
+
+          <div id="container-new-asset-cedula" class="col-span-2">
+            <label class="block text-slate-700 font-medium mb-1 text-[11px]">Cédula Responsable *</label>
+            <input type="text" id="new-asset-resp-cedula" required placeholder="Ej: 1020304050" class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] font-mono text-xs" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-slate-700 font-medium mb-1 text-[11px]">Funcionario Responsable *</label>
+          <input type="text" id="new-asset-resp-name" required placeholder="Nombre completo" class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs" />
+        </div>
+
+        <div>
+          <label class="block text-slate-700 font-medium mb-1 text-[11px]">Observaciones / Notas Internas</label>
+          <input type="text" id="new-asset-notes" placeholder="Ej: Asignado a planta principal..." class="w-full px-2.5 py-2 bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-none focus:border-[#006837] text-xs" />
+        </div>
+
+        <div class="pt-3 flex justify-end space-x-2 border-t border-slate-200">
+          <button type="button" onclick="closeAssetModal()" class="px-3.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold cursor-pointer">
+            Cancelar
+          </button>
+          <button type="submit" class="px-4 py-1.5 rounded-lg bg-[#006837] hover:bg-[#00522c] text-white font-bold text-xs shadow-sm cursor-pointer">
+            Registrar Activo
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200 py-3.5 text-center text-[10px] text-slate-500 bg-white mt-auto">
+    Invetario • Somex S.A. • Intranet Nutrinet • Gestión de Activos TIC • Actas de Baja, Fotografías y Auditoría Digital
+  </footer>
+
+  <!-- Script Lógico Completo -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -2,8 +2,8 @@
   "name": "DuoControl | Presupuesto Unificado Gil & Ale",
   "short_name": "DuoControl",
   "description": "Control financiero del hogar y lista de compras en tiempo real para Gil & Ale.",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "display_override": ["standalone", "window-controls-overlay"],
   "background_color": "#07090e",
@@ -42,16 +42,15 @@
       "name": "Registrar Gasto del Hogar",
       "short_name": "+ Gasto",
       "description": "Registra servicios, moto, gasolina, administración...",
-      "url": "./index.html?action=new_expense",
+      "url": "/?action=new_expense",
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Lista de Mercado",
       "short_name": "Mercado",
       "description": "Revisa los productos pendientes para el súper",
-      "url": "./index.html?tab=market",
+      "url": "/?tab=market",
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
     }
-  ],
-  "categories": ["finance", "productivity", "shopping"]
+  ]
 }

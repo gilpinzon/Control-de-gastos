@@ -1,0 +1,185 @@
+/**
+ * ==============================================================================
+ * HOJA DE ESTILOS CORPORATIVA SOMEX (static/css/styles.css)
+ * Identidad Visual Intranet Nutrinet / Somex S.A.
+ * Garantiza total legibilidad, alto contraste y funcionamiento offline.
+ * ==============================================================================
+ */
+
+:root {
+  --somex-primary: #006837;
+  --somex-primary-dark: #00522c;
+  --somex-accent: #16A34A;
+  --somex-accent-dark: #008F4C;
+  --somex-bg: #F3F5F7;
+  --somex-card: #FFFFFF;
+  --somex-border: #E2E8F0;
+  --somex-text-dark: #111827;
+  --somex-text-slate: #1E293B;
+  --somex-text-muted: #64748B;
+}
+
+/* Regla crítica para modales y elementos dinámicos */
+.hidden {
+  display: none !important;
+}
+
+body {
+  background-color: var(--somex-bg);
+  color: var(--somex-text-slate);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* Tablas corporativas de alto contraste */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+th {
+  background-color: #F8FAFC;
+  color: #334155;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+
+td {
+  color: #111827 !important;
+  font-size: 11.5px;
+}
+
+tbody tr:hover {
+  background-color: #F1F5F9;
+}
+
+/* Tarjetas y contenedores */
+.somex-card {
+  background-color: #FFFFFF;
+  border: 1px solid var(--somex-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+.kpi-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.kpi-card:hover {
+  border-color: var(--somex-primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px -1px rgba(0, 104, 55, 0.1);
+}
+
+/* Botones principales corporativos */
+.btn-somex-primary {
+  background-color: var(--somex-primary);
+  color: #FFFFFF;
+  border: none;
+  font-weight: 600;
+  transition: background-color 0.15s ease;
+}
+
+.btn-somex-primary:hover {
+  background-color: var(--somex-primary-dark);
+}
+
+/* Badges de estado con contraste reforzado */
+.badge-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.badge-firmado {
+  background-color: #DCFCE7;
+  color: #14532D;
+  border: 1px solid #86EFAC;
+}
+
+.badge-pendiente {
+  background-color: #FEF9C3;
+  color: #713F12;
+  border: 1px solid #FDE047;
+}
+
+.badge-sin-acta {
+  background-color: #FEE2E2;
+  color: #7F1D1D;
+  border: 1px solid #FCA5A5;
+}
+
+.badge-baja {
+  background-color: #F1F5F9;
+  color: #475569;
+  border: 1px solid #CBD5E1;
+}
+
+/* Modales y Overlays */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.modal-content {
+  background-color: #FFFFFF;
+  border-radius: 1rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* Cámara y Video de escaneo QR */
+#qr-camera-reader video {
+  border-radius: 0.75rem;
+  object-fit: cover;
+  width: 100% !important;
+}
+
+/* Scrollbars corporativos */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F1F5F9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--somex-primary);
+}
+
+/* Reglas explícitas de dimensionamiento SVG e Iconos (100% Offline) */
+.lucide, svg.lucide {
+  display: inline-block !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+}
+.w-3, .h-3 { width: 12px !important; height: 12px !important; }
+.w-3\.5, .h-3\.5 { width: 14px !important; height: 14px !important; }
+.w-4, .h-4 { width: 16px !important; height: 16px !important; }
+.w-5, .h-5 { width: 20px !important; height: 20px !important; }
+.w-6, .h-6 { width: 24px !important; height: 24px !important; }
+.w-7, .h-7 { width: 28px !important; height: 28px !important; }
+.w-8, .h-8 { width: 32px !important; height: 32px !important; }
