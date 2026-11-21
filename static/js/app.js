@@ -1,2551 +1,1906 @@
 /**
- * ==============================================================================
- * INVENTARIO SOMEX — LÓGICA DE INTERFAZ FRONTEND (static/app.js)
- * Intranet Nutrinet / Somex S.A.
- * 
- * Mejoras y Correcciones:
- * 1. Contraste Total en Todas las Tablas:
- *    - Todas las celdas en Negro Carbón (#111827) y Gris Pizarra (#1E293B).
- *    - Cero texto tenue o blanco sobre fondo claro.
- * 2. Eliminación de Columna "ACCIÓN" y Botón "✓ Escanear":
- *    - En "Pendientes por Verificar", verificación 100% automatizada vía QR.
- * 3. Galería de Fotografías Organizada por Carpetas de Fecha / Ciclo:
- *    - Agrupación por jornadas de auditoría y fechas de escaneo.
- *    - Navegación con carpetas y breadcrumbs.
- *    - Controles de eliminación individuales y masivos para el Administrador.
- * 4. Gestión de Roles Estrictos (admin, auxiliar, auditor).
- * ==============================================================================
+ * DUOCONTROL | LÓGICA PRINCIPAL DE LA APLICACIÓN (PWA & CLOUD SYNC)
+ * Presupuesto Unificado del Hogar: Gil & Ale 🏡
+ * 100% Mobile-First • Datos en Ceros • Selector de Meses Nativo
  */
 
-// Estado Global
-let allAssets = [];
-let allCollaborators = [];
-let allBajas = [];
-let scannedAssets = [];
-let currentFilter = 'Todos';
-let currentCollaborator = 'Todos';
-let currentSede = 'Todas';
-let currentOperationalStatus = 'Todos';
-let currentType = 'Todos';
-let currentSearch = '';
-let activeAsset = null;
-let currentModalTab = 'validate';
-let currentMainModule = 'inventory';
-let currentAuditCycle = 'Bimensual';
-let cachedReportData = null;
-
-let currentGalleryFolderId = null;
-let cachedGalleryFolders = [];
-
-let currentUser = null;
-let html5QrScanner = null;
-let isCameraScanning = false;
-let toastTimer = null;
-let autoScanTimer = null;
-
-// ------------------------------------------------------------------------------
-// INICIALIZACIÓN INMEDIATA (NO BLOQUEANTE)
-// ------------------------------------------------------------------------------
-document.addEventListener('DOMContentLoaded', async () => {
-  // 1. Renderizar iconos offline de inmediato
-  if (window.lucide && typeof window.lucide.createIcons === 'function') {
-    window.lucide.createIcons();
+// Generador de UUID compatible con PostgreSQL y navegadores
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
   }
-
-  // Asegurar selección por defecto: Todos los Dispositivos, Todas las Sedes, Todos los Estados
-  const filterTypeEl = document.getElementById('filter-type');
-  if (filterTypeEl) filterTypeEl.value = 'Todos';
-  currentType = 'Todos';
-
-  const filterSedeEl = document.getElementById('filter-sede');
-  if (filterSedeEl) filterSedeEl.value = 'Todas';
-  currentSede = 'Todas';
-
-  const filterOpStatusEl = document.getElementById('filter-operational-status');
-  if (filterOpStatusEl) filterOpStatusEl.value = 'Todos';
-  currentOperationalStatus = 'Todos';
-
-  // 2. Cargar activos y navegación de forma inmediata sin bloquear el DOM
-  loadAssets();
-  loadCollaborators();
-
-  // 3. Comprobar sesión de fondo sin congelar la interfaz
-  checkUserSession();
-
-  // 4. Cerrar dropdown de colaboradores al hacer clic fuera
-  document.addEventListener('click', (e) => {
-    const searchBox = document.getElementById('collab-search-input');
-    const dropdown = document.getElementById('collab-dropdown-list');
-    if (searchBox && dropdown && !searchBox.contains(e.target) && !dropdown.contains(e.target)) {
-      dropdown.classList.add('hidden');
-    }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
   });
-});
-
-// ------------------------------------------------------------------------------
-// 1. SESIÓN REAL, LOGIN Y GESTIÓN DE ROLES (admin, auxiliar, auditor)
-// ------------------------------------------------------------------------------
-async function checkUserSession() {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-  try {
-    const res = await fetch('/api/auth/me', { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.authenticated && data.user) {
-        currentUser = data.user;
-        updateUserHeaderUI(currentUser);
-        applyRolePermissions();
-        return;
-      }
-    }
-    // Usuario no autenticado
-    currentUser = null;
-    updateUserHeaderUI(null);
-    applyRolePermissions();
-  } catch (err) {
-    clearTimeout(timeoutId);
-    currentUser = null;
-    updateUserHeaderUI(null);
-    applyRolePermissions();
-  }
 }
 
-function updateUserHeaderUI(user) {
-  const nameEl = document.getElementById('user-display-name');
-  const roleEl = document.getElementById('user-role-badge');
-  const authIcon = document.getElementById('auth-icon');
+// Estado global inicial limpio (100% en ceros, sin datos de prueba)
+const DEFAULT_INITIAL_STATE = {
+  activeTab: 'dashboard',
+  selectedMonth: {
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() // Mes actual del sistema (0 = Enero, ..., 10 = Noviembre, 11 = Diciembre)
+  },
+  txFilter: 'todos',
+  couple: {
+    name1: 'Gil',
+    name2: 'Ale',
+    email1: '',
+    email2: '',
+    currency: 'COP',
+    symbol: '$',
+    monthlySavingsGoal: 0
+  },
+  neon: {
+    isConnected: false,
+    lastSyncedAt: null
+  },
+  transactions: [], // Limpio en ceros
+  shoppingList: []  // Limpio en ceros
+};
 
-  if (user) {
-    if (nameEl) nameEl.textContent = user.name || user.email;
-    if (roleEl) {
-      if (user.role === 'admin') roleEl.textContent = 'Administrador TIC';
-      else if (user.role === 'auxiliar') roleEl.textContent = 'Auxiliar TIC (Lectura)';
-      else roleEl.textContent = 'Auditoría TIC (Lectura)';
-    }
-    if (authIcon) authIcon.setAttribute('data-lucide', 'log-out');
-  } else {
-    if (nameEl) nameEl.textContent = 'Iniciar Sesión';
-    if (roleEl) roleEl.textContent = 'Modo Consulta';
-    if (authIcon) authIcon.setAttribute('data-lucide', 'log-in');
-  }
-  if (window.lucide && typeof window.lucide.createIcons === 'function') {
-    window.lucide.createIcons();
-  }
-}
+// Categorías oficiales solicitadas
+const CATEGORIES = {
+  gasto: [
+    { name: 'Servicios públicos', icon: 'zap', color: '#f59e0b', emoji: '💡' },
+    { name: 'Administración del conjunto', icon: 'building', color: '#6366f1', emoji: '🏢' },
+    { name: 'Mantenimiento de la moto', icon: 'wrench', color: '#06b6d4', emoji: '🏍️' },
+    { name: 'Gasolina', icon: 'fuel', color: '#ef4444', emoji: '⛽' },
+    { name: 'Mercado / Supermercado', icon: 'shopping-cart', color: '#10b981', emoji: '🛒', isMarket: true },
+    { name: 'Otros', icon: 'folder', color: '#8b5cf6', emoji: '📂' }
+  ],
+  ingreso: [
+    { name: 'Salario / Sueldo', icon: 'briefcase', color: '#10b981', emoji: '💼' },
+    { name: 'Negocios / Extra', icon: 'trending-up', color: '#06b6d4', emoji: '📈' },
+    { name: 'Otros Ingresos', icon: 'dollar-sign', color: '#3b82f6', emoji: '🎁' }
+  ]
+};
 
-function showLoginScreen() {
-  const overlay = document.getElementById('login-modal-overlay');
-  if (overlay) overlay.classList.remove('hidden');
-  if (window.lucide && typeof window.lucide.createIcons === 'function') {
-    window.lucide.createIcons();
-  }
-}
+class DuoControlApp {
+  constructor() {
+    this.state = this.loadState();
+    this.chartInstance = null;
+    this.historyChartInstance = null;
+    this.currentInsightIndex = 0;
+    this.insightsList = [];
+    this.modalTxType = 'gasto';
+    this.deferredPrompt = null;
 
-function hideLoginScreen() {
-  const overlay = document.getElementById('login-modal-overlay');
-  if (overlay) overlay.classList.add('hidden');
-}
-
-function fillLoginForm(email, password) {
-  const eInput = document.getElementById('login-email');
-  const pInput = document.getElementById('login-password');
-  if (eInput) eInput.value = email;
-  if (pInput) pInput.value = password;
-}
-
-async function handleLoginSubmit(e) {
-  e.preventDefault();
-  const email = document.getElementById('login-email').value.trim();
-  const password = document.getElementById('login-password').value;
-  const errorBox = document.getElementById('login-error-msg');
-  const btn = document.getElementById('login-submit-btn');
-
-  if (errorBox) errorBox.classList.add('hidden');
-  if (btn) btn.disabled = true;
-
-  try {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.detail || 'Credenciales incorrectas');
-    }
-
-    currentUser = data.user;
-    hideLoginScreen();
-    applyRolePermissions();
-    showToast('success', `Bienvenido, ${currentUser.name}`);
-
-    await loadAssets();
-    await loadCollaborators();
-
-  } catch (err) {
-    if (errorBox) {
-      errorBox.textContent = err.message;
-      errorBox.classList.remove('hidden');
-    }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-async function logout() {
-  try {
-    await fetch('/api/auth/logout', { method: 'POST' });
-  } catch (err) {
-    console.warn('Error al cerrar sesión:', err);
-  } finally {
-    currentUser = null;
-    stopCameraScan();
-    showLoginScreen();
-    showToast('success', 'Sesión cerrada correctamente.');
-  }
-}
-
-function applyRolePermissions() {
-  if (!currentUser) return;
-
-  const role = currentUser.role;
-  const isAdmin = role === 'admin';
-  const isAuxiliar = role === 'auxiliar';
-  const isAuditor = role === 'auditor';
-  const isReadOnly = isAuxiliar || isAuditor;
-
-  // Actualizar datos del usuario en la barra superior
-  const nameEl = document.getElementById('user-display-name');
-  const badgeEl = document.getElementById('user-role-badge');
-  const btnUsers = document.getElementById('btn-users-management');
-
-  if (nameEl) nameEl.textContent = currentUser.name || currentUser.email;
-  if (badgeEl) {
-    if (isAdmin) {
-      badgeEl.textContent = '🛡️ Administrador';
-      badgeEl.className = 'block text-[9.5px] font-bold leading-tight text-emerald-200';
-    } else if (isAuxiliar) {
-      badgeEl.textContent = '🔧 Auxiliar TIC (Solo Lectura)';
-      badgeEl.className = 'block text-[9.5px] font-bold leading-tight text-sky-200';
-    } else {
-      badgeEl.textContent = '👁️ Auditoría TIC (Solo Lectura)';
-      badgeEl.className = 'block text-[9.5px] font-bold leading-tight text-amber-200';
-    }
+    this.init();
   }
 
-  // Botón de Gestión de Usuarios y Roles (Visible únicamente para Administrador)
-  if (btnUsers) {
-    if (isAdmin) btnUsers.classList.remove('hidden');
-    else btnUsers.classList.add('hidden');
-  }
-
-  // Banner informativo para perfiles de Solo Lectura
-  const banner = document.getElementById('auditor-banner');
-  const bannerText = document.getElementById('auditor-banner-text');
-  if (banner && bannerText) {
-    if (isReadOnly) {
-      banner.classList.remove('hidden');
-      if (isAuxiliar) {
-        bannerText.innerHTML = '<strong>Perfil Auxiliar TIC (Solo Lectura):</strong> Tienes acceso a consultar inventario, auditar por QR y revisar fotografías. Las modificaciones están reservadas para el Administrador.';
-      } else {
-        bannerText.innerHTML = '<strong>Perfil Auditoría TIC (Solo Lectura):</strong> Acceso de inspección y revisión de actas, soportes de baja y evidencia visual sin permisos de alteración de registros.';
-      }
-    } else {
-      banner.classList.add('hidden');
-    }
-  }
-
-  // Botones de mutación
-  const btnNew = document.getElementById('btn-new-asset');
-  const btnSync = document.getElementById('btn-sync-glpi');
-  const btnOpenBaja = document.getElementById('btn-open-baja-modal');
-  const btnResetAudit = document.getElementById('btn-reset-audit');
-  const btnDeleteAllPhotos = document.getElementById('btn-delete-all-photos');
-  const btnDeleteCurrentFolder = document.getElementById('btn-delete-current-folder');
-  const btnReimport = document.getElementById('btn-reimport-octubre');
-
-  if (btnNew) btnNew.style.display = isReadOnly ? 'none' : 'inline-flex';
-  if (btnSync) btnSync.style.display = isReadOnly ? 'none' : 'inline-flex';
-  if (btnOpenBaja) btnOpenBaja.style.display = isReadOnly ? 'none' : 'inline-flex';
-  if (btnResetAudit) btnResetAudit.style.display = isAdmin ? 'inline-flex' : 'none';
-  if (btnDeleteAllPhotos) btnDeleteAllPhotos.style.display = isAdmin ? 'inline-flex' : 'none';
-  if (btnDeleteCurrentFolder) btnDeleteCurrentFolder.style.display = (isAdmin && currentGalleryFolderId) ? 'inline-flex' : 'none';
-  if (btnReimport) btnReimport.style.display = isAdmin ? 'inline-flex' : 'none';
-
-  // Permisos en Modal de Documentación
-  const uploadBlocked = document.getElementById('auditor-upload-blocked');
-  const uploadForm = document.getElementById('admin-upload-form');
-  const btnSaveNotes = document.getElementById('btn-save-notes');
-  const notesNotice = document.getElementById('notes-readonly-notice');
-  const notesInput = document.getElementById('modal-asset-notes-input');
-  const photoControls = document.getElementById('photo-upload-controls');
-
-  if (uploadBlocked && uploadForm) {
-    if (isReadOnly) {
-      uploadBlocked.classList.remove('hidden');
-      uploadForm.classList.add('hidden');
-    } else {
-      uploadBlocked.classList.add('hidden');
-      uploadForm.classList.remove('hidden');
-    }
-  }
-
-  if (photoControls) {
-    photoControls.style.display = isReadOnly ? 'none' : 'block';
-  }
-
-  if (btnSaveNotes && notesNotice && notesInput) {
-    if (isReadOnly) {
-      btnSaveNotes.classList.add('hidden');
-      notesNotice.classList.remove('hidden');
-      notesInput.readOnly = true;
-    } else {
-      btnSaveNotes.classList.remove('hidden');
-      notesNotice.classList.add('hidden');
-      notesInput.readOnly = false;
-    }
-  }
-
-  if (window.lucide) lucide.createIcons();
-}
-
-// ------------------------------------------------------------------------------
-// 2. PANEL DE GESTIÓN DE USUARIOS Y ROLES (ADMIN ONLY)
-// ------------------------------------------------------------------------------
-async function openUsersModal() {
-  if (!currentUser || currentUser.role !== 'admin') {
-    showToast('error', 'Acceso denegado: Solo el Administrador de Inventario puede gestionar usuarios.');
-    return;
-  }
-
-  await loadUsersList();
-  const modal = document.getElementById('users-modal');
-  if (modal) modal.classList.remove('hidden');
-  if (window.lucide) lucide.createIcons();
-}
-
-function closeUsersModal() {
-  const modal = document.getElementById('users-modal');
-  if (modal) modal.classList.add('hidden');
-}
-
-async function loadUsersList() {
-  const tbody = document.getElementById('users-table-body');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="4" class="p-3 text-center text-slate-500">Cargando usuarios...</td></tr>';
-
-  try {
-    const res = await fetch('/api/users');
-    const data = await res.json();
-    if (res.ok && data.users) {
-      tbody.innerHTML = '';
-      data.users.forEach(u => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50 transition border-b border-slate-200 text-[#111827] font-medium';
-
-        let roleBadge = '';
-        if (u.role === 'admin') {
-          roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-[#00522c] border border-emerald-300">🛡️ Administrador</span>';
-        } else if (u.role === 'auxiliar') {
-          roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-sky-100 text-sky-800 border border-sky-300">🔧 Auxiliar TIC</span>';
-        } else {
-          roleBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">👁️ Auditoría TIC</span>';
+  // Carga el estado de localStorage bajo la clave exclusiva de Gil & Ale
+  loadState() {
+    try {
+      const saved = localStorage.getItem('duocontrol_gil_ale_v3');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Garantizar nombres de Gil & Ale
+        if (parsed.couple) {
+          parsed.couple.name1 = parsed.couple.name1 || 'Gil';
+          parsed.couple.name2 = parsed.couple.name2 || 'Ale';
         }
-
-        const isSelf = currentUser && currentUser.email.toLowerCase() === u.email.toLowerCase();
-
-        tr.innerHTML = `
-          <td class="py-2.5 px-3 font-extrabold text-[#111827]">${u.name}</td>
-          <td class="py-2.5 px-3 text-[#111827] font-mono font-bold text-[11px]">${u.email}</td>
-          <td class="py-2.5 px-3">${roleBadge}</td>
-          <td class="py-2.5 px-3 text-right">
-            ${isSelf ? '<span class="text-[10px] text-slate-400 italic">Sesión actual</span>' : `
-              <button onclick="handleDeleteUser(${u.id}, '${u.name}')" class="text-rose-600 hover:text-rose-800 p-1 hover:bg-rose-50 rounded transition cursor-pointer" title="Eliminar usuario">
-                <i data-lucide="trash-2" class="h-4 w-4"></i>
-              </button>
-            `}
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-      if (window.lucide) lucide.createIcons();
+        return parsed;
+      }
+    } catch (e) {
+      console.warn('Error al cargar estado de localStorage:', e);
     }
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="p-3 text-center text-rose-600">Error al cargar usuarios: ${err.message}</td></tr>`;
+    return JSON.parse(JSON.stringify(DEFAULT_INITIAL_STATE));
   }
-}
 
-async function handleCreateUser(e) {
-  e.preventDefault();
-  const name = document.getElementById('new-user-name').value.trim();
-  const email = document.getElementById('new-user-email').value.trim();
-  const password = document.getElementById('new-user-pwd').value;
-  const role = document.getElementById('new-user-role').value;
+  // Guarda el estado en localStorage
+  saveState() {
+    try {
+      localStorage.setItem('duocontrol_gil_ale_v3', JSON.stringify(this.state));
+    } catch (e) {
+      console.warn('Error al guardar estado:', e);
+    }
+  }
 
-  try {
-    const res = await fetch('/api/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, role })
+  // Inicialización de la aplicación
+  init() {
+    this.setupPwaListeners();
+    this.setupDateDefaults();
+    this.setupMonthDropdown();
+    this.applySettingsToUI();
+    this.updateHeaderUI();
+    this.renderDashboard();
+    this.renderMarket();
+    this.renderUnifiedFund();
+    this.refreshSmartInsights();
+
+    // Sincronización automática con Neon Cloud (PostgreSQL)
+    this.checkNeonStatus();
+    this.syncFromNeon();
+
+    // Manejo de accesos directos PWA (Shortcuts en iOS / Android)
+    this.handleUrlShortcuts();
+
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+  }
+
+  // Configura la fecha actual por defecto en el input
+  setupDateDefaults() {
+    const today = new Date().toISOString().split('T')[0];
+    const dateInput = document.getElementById('txDateInput');
+    if (dateInput) dateInput.value = today;
+  }
+
+  // Configura el selector de meses desplegable (<select>) de Enero a Diciembre
+  setupMonthDropdown() {
+    const select = document.getElementById('monthDropdownSelect');
+    if (!select) return;
+
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+
+    const currentYear = this.state.selectedMonth.year || new Date().getFullYear();
+    const currentMonth = this.state.selectedMonth.month !== undefined ? this.state.selectedMonth.month : new Date().getMonth();
+
+    select.innerHTML = monthNames.map((name, index) => {
+      const isSelected = index === currentMonth ? 'selected' : '';
+      return `<option value="${index}" ${isSelected}>📅 ${name} ${currentYear}</option>`;
+    }).join('');
+
+    select.value = currentMonth;
+  }
+
+  // Manejador del cambio en el selector desplegable de meses
+  handleMonthDropdownChange(event) {
+    const newMonth = parseInt(event.target.value, 10);
+    this.state.selectedMonth.month = newMonth;
+    this.saveState();
+
+    this.updateHeaderUI();
+    this.renderDashboard();
+    this.renderUnifiedFund();
+    this.refreshSmartInsights();
+
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
+  // Formateador de moneda dinámico
+  formatCurrency(amount) {
+    const currency = this.state.couple.currency || 'COP';
+    try {
+      return new Intl.NumberFormat('es-CO', {
+        style: 'currency',
+        currency: currency,
+        maximumFractionDigits: 0
+      }).format(amount);
+    } catch (e) {
+      return (this.state.couple.symbol || '$') + ' ' + Number(amount).toLocaleString();
+    }
+  }
+
+  // Actualiza textos del encabezado
+  updateHeaderUI() {
+    const c = this.state.couple;
+    const coupleNameEl = document.getElementById('headerCoupleName');
+    if (coupleNameEl) {
+      coupleNameEl.textContent = `${c.name1} & ${c.name2} • Presupuesto Unificado 🏡`;
+    }
+
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    const mLabel = `${monthNames[this.state.selectedMonth.month]} ${this.state.selectedMonth.year}`;
+    const chartMonthBadge = document.getElementById('chartMonthBadge');
+    if (chartMonthBadge) chartMonthBadge.textContent = mLabel;
+
+    // Actualiza botones en el modal
+    const paidLabel1 = document.getElementById('paidByLabel1');
+    const paidLabel2 = document.getElementById('paidByLabel2');
+    if (paidLabel1) paidLabel1.textContent = c.name1;
+    if (paidLabel2) paidLabel2.textContent = c.name2;
+  }
+
+  // Navegación entre pestañas optimizada para móvil
+  switchTab(tabId) {
+    this.state.activeTab = tabId;
+    const tabs = ['dashboard', 'market', 'balance', 'settings'];
+
+    tabs.forEach(t => {
+      const el = document.getElementById(`tab-${t}`);
+      const btn = document.getElementById(`navBtn-${t}`);
+      if (el) {
+        if (t === tabId) {
+          el.classList.remove('hidden');
+        } else {
+          el.classList.add('hidden');
+        }
+      }
+      if (btn) {
+        if (t === tabId) {
+          btn.classList.add('text-emerald-400');
+          btn.classList.remove('text-slate-400');
+        } else {
+          btn.classList.remove('text-emerald-400');
+          btn.classList.add('text-slate-400');
+        }
+      }
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al crear usuario');
 
-    showToast('success', `Usuario ${data.user.name} creado correctamente.`);
-    document.getElementById('new-user-name').value = '';
-    document.getElementById('new-user-email').value = '';
-    document.getElementById('new-user-pwd').value = '';
-
-    await loadUsersList();
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-async function handleDeleteUser(userId, userName) {
-  const ok = confirm(`¿Estás seguro de que deseas eliminar al usuario "${userName}"?`);
-  if (!ok) return;
-
-  try {
-    const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al eliminar usuario');
-
-    showToast('success', data.message);
-    await loadUsersList();
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 3. NAVEGACIÓN ENTRE MÓDULOS DEL NAVBAR
-// ------------------------------------------------------------------------------
-function switchMainModule(moduleName) {
-  currentMainModule = moduleName;
-  const modules = [
-    { id: 'inventory', btn: 'nav-btn-inventory', sec: 'module-inventory' },
-    { id: 'qr-audit', btn: 'nav-btn-qr-audit', sec: 'module-qr-audit' },
-    { id: 'gallery', btn: 'nav-btn-gallery', sec: 'module-gallery' },
-    { id: 'bajas', btn: 'nav-btn-bajas', sec: 'module-bajas' },
-    { id: 'reports', btn: 'nav-btn-reports', sec: 'module-reports' }
-  ];
-
-  modules.forEach(m => {
-    const btn = document.getElementById(m.btn);
-    const sec = document.getElementById(m.sec);
-
-    if (m.id === moduleName) {
-      if (sec) sec.classList.remove('hidden');
-      if (btn) {
-        btn.className = 'px-2.5 sm:px-3 py-1.5 rounded-lg font-semibold bg-white text-[#006837] transition flex items-center space-x-1.5 shadow-sm whitespace-nowrap cursor-pointer flex-shrink-0';
-      }
-    } else {
-      if (sec) sec.classList.add('hidden');
-      if (btn) {
-        btn.className = 'px-2.5 sm:px-3 py-1.5 rounded-lg font-medium text-emerald-100 hover:text-white hover:bg-white/10 transition flex items-center space-x-1.5 whitespace-nowrap cursor-pointer flex-shrink-0';
-      }
+    if (tabId === 'dashboard') {
+      this.renderDashboard();
+    } else if (tabId === 'market') {
+      this.renderMarket();
+    } else if (tabId === 'balance') {
+      this.renderUnifiedFund();
+    } else if (tabId === 'settings') {
+      this.applySettingsToUI();
     }
-  });
 
-  if (moduleName !== 'qr-audit') {
-    stopCameraScan();
-  }
-
-  if (moduleName === 'qr-audit') {
-    loadScannedAssets();
-  } else if (moduleName === 'gallery') {
-    loadPhotoGallery();
-  } else if (moduleName === 'bajas') {
-    loadBajas();
-  } else if (moduleName === 'reports') {
-    loadReportsModule();
-  } else if (moduleName === 'inventory') {
-    renderDashboard();
-  }
-
-  if (window.lucide) lucide.createIcons();
-}
-
-// ------------------------------------------------------------------------------
-// 4. LIMPIEZA DE NOMENCLATURAS (REGLA DE ACTIVO LIMPIO)
-// ------------------------------------------------------------------------------
-function cleanAssetTag(tag) {
-  if (!tag) return '';
-  let clean = tag.replace(/^(SMX|GLPI|ACT)-[A-Za-z0-9]+-(?=[A-Za-z0-9])/i, '');
-  clean = clean.replace(/^(SMX|GLPI|ACT)-/i, '');
-  return clean || tag;
-}
-
-// ------------------------------------------------------------------------------
-// 5. CARGA DE DATOS PRINCIPALES (API)
-// ------------------------------------------------------------------------------
-async function loadAssets() {
-  const tbody = document.getElementById('assets-table-body');
-  try {
-    const res = await fetch('/api/assets');
-    const data = await res.json();
-    if (res.ok && data.assets) {
-      allAssets = data.assets;
-    } else {
-      allAssets = [];
-    }
-  } catch (err) {
-    console.warn('Advertencia al consultar /api/assets:', err);
-    allAssets = [];
-  }
-  renderDashboard();
-  if (currentMainModule === 'gallery') loadPhotoGallery();
-}
-
-async function loadCollaborators() {
-  try {
-    const res = await fetch('/api/collaborators');
-    const data = await res.json();
-    if (res.ok && data.collaborators) {
-      allCollaborators = data.collaborators;
-      renderCollaboratorDropdown(allCollaborators);
-    }
-  } catch (err) {
-    console.warn('Error al cargar colaboradores:', err);
-  }
-}
-
-function renderDashboard() {
-  updateKPIs();
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-function updateKPIs() {
-  const activeAssets = allAssets.filter(a => a.document_status !== 'Dado de Baja');
-  const total = activeAssets.length;
-  const verified = activeAssets.filter(a => a.document_status === 'Verificado y Firmado').length;
-  const pending = activeAssets.filter(a => a.document_status === 'Pendiente de Firma').length;
-  const missing = activeAssets.filter(a => a.document_status === 'Sin Acta').length;
-  const rate = total > 0 ? Math.round((verified / total) * 100) : 0;
-
-  const kTotal = document.getElementById('kpi-total');
-  const kVerif = document.getElementById('kpi-verified');
-  const kPend = document.getElementById('kpi-pending');
-  const kMiss = document.getElementById('kpi-missing');
-  const kRate = document.getElementById('kpi-rate');
-
-  if (kTotal) kTotal.textContent = total;
-  if (kVerif) kVerif.textContent = verified;
-  if (kPend) kPend.textContent = pending;
-  if (kMiss) kMiss.textContent = missing;
-  if (kRate) kRate.textContent = `${rate}% cumplimiento`;
-
-  const cAll = document.getElementById('count-all');
-  const cMiss = document.getElementById('count-sin-acta');
-  const cPend = document.getElementById('count-pendiente');
-  const cVerif = document.getElementById('count-verificado');
-
-  if (cAll) cAll.textContent = total;
-  if (cMiss) cMiss.textContent = missing;
-  if (cPend) cPend.textContent = pending;
-  if (cVerif) cVerif.textContent = verified;
-}
-
-// ------------------------------------------------------------------------------
-// 6. RENDERIZADO DE TABLA (ALTO CONTRASTE #111827 / #1E293B + SEDE + NOTAS LIMPIAS)
-// ------------------------------------------------------------------------------
-function setSedeFilter(sede) {
-  currentSede = sede;
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-function setOperationalStatusFilter(status) {
-  currentOperationalStatus = status;
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-function setTypeFilter(type) {
-  currentType = type;
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-function getOperationalStatusBadge(status) {
-  const s = (status || 'Activo').trim();
-  switch (s) {
-    case 'Activo':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-[#006837] border border-emerald-300 truncate" title="Activo Operativo"><i data-lucide="check-circle-2" class="h-3 w-3 text-[#006837] shrink-0"></i><span class="truncate">Activo</span></span>`;
-    case 'Activo Backup':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-300 truncate" title="Activo Backup"><i data-lucide="shield" class="h-3 w-3 text-blue-700 shrink-0"></i><span class="truncate">Activo Backup</span></span>`;
-    case 'Activo Sin uso':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-100 text-amber-800 border border-amber-300 truncate" title="Activo Sin Uso"><i data-lucide="pause-circle" class="h-3 w-3 text-amber-700 shrink-0"></i><span class="truncate">Sin Uso</span></span>`;
-    case 'Activo de Baja':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 truncate" title="Activo de Baja"><i data-lucide="x-octagon" class="h-3 w-3 text-rose-700 shrink-0"></i><span class="truncate">De Baja</span></span>`;
-    case 'Inactivo - En Bodega':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 truncate" title="Inactivo - En Bodega"><i data-lucide="package" class="h-3 w-3 text-purple-700 shrink-0"></i><span class="truncate">En Bodega</span></span>`;
-    case 'Inactivo - En Revisión':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-orange-100 text-orange-800 border border-orange-300 truncate" title="Inactivo - En Revisión"><i data-lucide="wrench" class="h-3 w-3 text-orange-700 shrink-0"></i><span class="truncate">En Revisión</span></span>`;
-    case 'Inactivo - En Garantía':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-cyan-100 text-cyan-800 border border-cyan-300 truncate" title="Inactivo - En Garantía"><i data-lucide="shield-alert" class="h-3 w-3 text-cyan-700 shrink-0"></i><span class="truncate">En Garantía</span></span>`;
-    case 'Inactivo para venta':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-300 truncate" title="Inactivo para Venta"><i data-lucide="tag" class="h-3 w-3 text-indigo-700 shrink-0"></i><span class="truncate">Para Venta</span></span>`;
-    case 'Inactivo desechado':
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-slate-200 text-slate-800 border border-slate-300 truncate" title="Inactivo Desechado"><i data-lucide="trash-2" class="h-3 w-3 text-slate-700 shrink-0"></i><span class="truncate">Desechado</span></span>`;
-    default:
-      return `<span class="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-extrabold bg-slate-100 text-[#111827] border border-slate-300 truncate">${s}</span>`;
-  }
-}
-
-function renderTable() {
-  const tbody = document.getElementById('assets-table-body');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  const filtered = allAssets.filter(asset => {
-    if (asset.document_status === 'Dado de Baja') return false;
-
-    const matchesFilter = currentFilter === 'Todos' || asset.document_status === currentFilter;
-    const matchesOpStatus = currentOperationalStatus === 'Todos' || (asset.operational_status && asset.operational_status.trim() === currentOperationalStatus);
-    const matchesType = currentType === 'Todos' || (asset.type && asset.type.trim() === currentType);
-    const matchesCollab = currentCollaborator === 'Todos' || (asset.responsible_name && asset.responsible_name.toLowerCase() === currentCollaborator.toLowerCase());
-    const matchesSede = currentSede === 'Todas' || (asset.sede && asset.sede.toLowerCase() === currentSede.toLowerCase());
-
-    const term = currentSearch.toLowerCase();
-    const matchesSearch = !term ||
-      (asset.asset_tag && asset.asset_tag.toLowerCase().includes(term)) ||
-      (asset.serial && asset.serial.toLowerCase().includes(term)) ||
-      (asset.equipment_name && asset.equipment_name.toLowerCase().includes(term)) ||
-      (asset.operational_status && asset.operational_status.toLowerCase().includes(term)) ||
-      (asset.responsible_name && asset.responsible_name.toLowerCase().includes(term)) ||
-      (asset.responsible_cedula && asset.responsible_cedula.includes(term)) ||
-      (asset.type && asset.type.toLowerCase().includes(term)) ||
-      (asset.sede && asset.sede.toLowerCase().includes(term)) ||
-      (asset.notes && asset.notes.toLowerCase().includes(term)) ||
-      (asset.imei && asset.imei.includes(term));
-
-    return matchesFilter && matchesOpStatus && matchesType && matchesCollab && matchesSede && matchesSearch;
-  });
-
-  const footer = document.getElementById('footer-count');
-  if (footer) {
-    footer.textContent = `Mostrando ${filtered.length} de ${allAssets.length} activos en pantalla`;
-  }
-
-  if (allAssets.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="10" class="py-14 text-center text-[#111827] font-semibold text-xs">
-          <div class="h-12 w-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#006837] mx-auto mb-3 shadow-sm">
-            <i data-lucide="package" class="h-6 w-6"></i>
-          </div>
-          <p class="text-sm font-bold text-slate-800">Base de datos lista para operar con datos reales</p>
-          <p class="text-xs text-slate-500 mt-1 max-w-md mx-auto">No hay activos de prueba. Incorpore activos reales mediante el botón <strong>"+ Nuevo Activo"</strong> o sincronice directamente con el servidor <strong>GLPI</strong>.</p>
-        </td>
-      </tr>
-    `;
-    if (footer) footer.textContent = '0 activos en la base de datos Somex';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     if (window.lucide) lucide.createIcons();
-    return;
+    if (navigator.vibrate) navigator.vibrate(10);
   }
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="10" class="py-12 text-center text-[#111827] font-semibold text-xs">
-          <i data-lucide="sliders-horizontal" class="h-6 w-6 mx-auto mb-2 text-slate-400"></i>
-          No se encontraron activos con los filtros aplicados.
-        </td>
-      </tr>
-    `;
-    if (window.lucide) lucide.createIcons();
-    return;
+  // =========================================================================
+  // MÓDULO 1: FINANZAS & FONDO COMÚN
+  // =========================================================================
+
+  getFilteredTransactions() {
+    const { year, month } = this.state.selectedMonth;
+    return (this.state.transactions || []).filter(tx => {
+      if (!tx.date) return false;
+      const d = new Date(tx.date + 'T00:00:00');
+      const matchesMonth = d.getFullYear() === year && d.getMonth() === month;
+      if (!matchesMonth) return false;
+
+      if (this.state.txFilter === 'gasto') return tx.type === 'gasto';
+      if (this.state.txFilter === 'ingreso') return tx.type === 'ingreso';
+      return true;
+    });
   }
 
-  filtered.forEach(asset => {
-    const tr = document.createElement('tr');
-    tr.className = 'hover:bg-emerald-50/50 transition border-b border-slate-200 text-[#111827] font-medium';
-
-    let iconName = 'laptop';
-    let iconColor = 'text-[#006837]';
-    const tLower = (asset.type || '').toLowerCase();
-    if (tLower.includes('notebook') || tLower.includes('laptop')) { iconName = 'laptop'; iconColor = 'text-[#006837]'; }
-    else if (tLower.includes('monitor')) { iconName = 'monitor'; iconColor = 'text-blue-700'; }
-    else if (tLower.includes('celular')) { iconName = 'smartphone'; iconColor = 'text-emerald-700'; }
-    else if (tLower.includes('tablet')) { iconName = 'tablet'; iconColor = 'text-teal-700'; }
-    else if (tLower.includes('proteína') || tLower.includes('medidor')) { iconName = 'activity'; iconColor = 'text-purple-700'; }
-    else if (tLower.includes('redes') || tLower.includes('switch') || tLower.includes('router') || tLower.includes('fortinet')) { iconName = 'network'; iconColor = 'text-indigo-700'; }
-    else if (tLower.includes('comunicaciones') || tLower.includes('audio')) { iconName = 'volume-2'; iconColor = 'text-sky-700'; }
-    else if (tLower.includes('impresora')) { iconName = 'printer'; iconColor = 'text-orange-700'; }
-    else if (tLower.includes('ups')) { iconName = 'zap'; iconColor = 'text-amber-600'; }
-    else if (tLower.includes('desktop') || tLower.includes('servidor')) { iconName = 'server'; iconColor = 'text-slate-800'; }
-    else if (tLower.includes('televisor') || tLower.includes('tv')) { iconName = 'tv'; iconColor = 'text-fuchsia-700'; }
-    else if (tLower.includes('cámara') || tLower.includes('vigilancia')) { iconName = 'camera'; iconColor = 'text-red-700'; }
-    else if (tLower.includes('lectores') || tLower.includes('biometría')) { iconName = 'fingerprint'; iconColor = 'text-emerald-800'; }
-    else if (tLower.includes('almacenamiento')) { iconName = 'hard-drive'; iconColor = 'text-slate-700'; }
-    else if (tLower.includes('drone') || tLower.includes('dron')) { iconName = 'navigation'; iconColor = 'text-amber-700'; }
-    else if (tLower.includes('video beam') || tLower.includes('proyector')) { iconName = 'projector'; iconColor = 'text-blue-600'; }
-    else if (tLower.includes('periféricos')) { iconName = 'mouse'; iconColor = 'text-cyan-700'; }
-    else if (tLower.includes('aire')) { iconName = 'wind'; iconColor = 'text-teal-600'; }
-    else { iconName = 'cpu'; iconColor = 'text-slate-700'; }
-
-    const opBadgeHtml = getOperationalStatusBadge(asset.operational_status);
-    const cleanTag = cleanAssetTag(asset.asset_tag);
-
-    const hasPhoto = asset.photo_url && asset.photo_url.trim().length > 0;
-    const photoCellHtml = hasPhoto
-      ? `<img src="${asset.photo_url}" onclick="openDocModalToTab(${asset.id}, 'photo')" class="h-7 w-7 rounded-lg object-cover mx-auto cursor-pointer border-2 border-slate-300 hover:border-[#006837] hover:scale-110 transition shadow-sm" title="Ver fotografía de ${asset.asset_tag}" />`
-      : `<button onclick="openDocModalToTab(${asset.id}, 'photo')" class="text-slate-400 hover:text-[#006837] p-1 rounded transition cursor-pointer" title="Subir / ver fotografía">
-           <i data-lucide="camera" class="h-4 w-4 mx-auto"></i>
-         </button>`;
-
-    // Notas / Motivo limpio
-    let cleanNotes = (asset.notes || '').trim();
-    if (cleanNotes.toLowerCase().includes('sincronizado')) cleanNotes = '';
-    const hasNotes = cleanNotes.length > 0;
-    const notesHtml = hasNotes
-      ? `<span class="inline-flex items-center space-x-1 text-[#111827] font-semibold truncate max-w-full" title="${cleanNotes}">
-          <i data-lucide="message-square" class="h-3 w-3 text-[#006837] shrink-0"></i>
-          <span class="truncate text-[10.5px] text-[#111827] font-bold">${cleanNotes}</span>
-        </span>`
-      : `<span class="text-slate-400 text-[10px] font-bold">-</span>`;
-
-    tr.innerHTML = `
-      <!-- Dispositivo + Nombre Equipo (11%) -->
-      <td class="py-3 px-2 truncate">
-        <div class="flex items-center space-x-1.5 truncate">
-          <div class="p-1 rounded bg-slate-100 border border-slate-200 shrink-0">
-            <i data-lucide="${iconName}" class="h-3.5 w-3.5 ${iconColor}"></i>
-          </div>
-          <div class="truncate">
-            <span class="font-extrabold text-[#111827] truncate text-[11.5px] block">${asset.type}</span>
-            ${asset.equipment_name ? `<span class="text-[9.5px] text-slate-500 font-semibold block truncate" title="${asset.equipment_name}">${asset.equipment_name}</span>` : ''}
-          </div>
-        </div>
-      </td>
-
-      <!-- ACTIVO LIMPIO (9%) -->
-      <td class="py-3 px-2 font-mono font-extrabold text-[#006837] truncate text-xs" title="Código completo: ${asset.asset_tag}">
-        ${cleanTag}
-      </td>
-
-      <!-- Serial (12%) -->
-      <td class="py-3 px-2 font-mono font-bold text-[#111827] truncate text-[11px]" title="${asset.serial}">
-        ${asset.serial}
-      </td>
-
-      <!-- IMEI (11%) -->
-      <td class="py-3 px-2 font-mono font-bold text-[#111827] truncate text-[11px]" title="${asset.imei || 'N/A'}">
-        ${asset.imei ? `<span class="text-[#111827] font-bold">${asset.imei}</span>` : '<span class="text-slate-400 font-normal">N/A</span>'}
-      </td>
-
-      <!-- Responsable / Sede (16%) -->
-      <td class="py-3 px-2.5 font-bold text-[#111827] truncate text-[11.5px]" title="Clic para filtrar por ${asset.responsible_name}">
-        <button onclick="selectCollaborator('${asset.responsible_name}')" class="hover:text-[#006837] hover:underline truncate text-left max-w-full block font-extrabold cursor-pointer text-[#111827]">
-          ${asset.responsible_name}
-        </button>
-        <span class="text-[9px] text-[#006837] font-extrabold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-300 inline-block leading-tight mt-0.5">${asset.sede || 'MEDELLIN ADMON'}</span>
-      </td>
-
-      <!-- Cédula (10%) -->
-      <td class="py-3 px-2 font-mono font-bold text-[#111827] truncate text-[11px]">
-        ${asset.responsible_cedula || '-'}
-      </td>
-
-      <!-- Estado Operativo Real (13%) -->
-      <td class="py-3 px-2 truncate">
-        ${opBadgeHtml}
-      </td>
-
-      <!-- Fotografía (5%) -->
-      <td class="py-3 px-2 text-center">
-        ${photoCellHtml}
-      </td>
-
-      <!-- Notas / Motivo (6%) -->
-      <td class="py-3 px-2 truncate">
-        ${notesHtml}
-      </td>
-
-      <!-- Acción (7%) -->
-      <td class="py-3 px-2.5 text-right whitespace-nowrap">
-        <button
-          onclick="openDocModal(${asset.id})"
-          class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#006837] hover:bg-[#00522c] text-white border border-[#00522c] transition shadow-sm cursor-pointer"
-          title="Ver o adjuntar actas"
-        >
-          <i data-lucide="file-text" class="h-3 w-3"></i>
-          <span>Acta</span>
-        </button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  if (window.lucide) lucide.createIcons();
-}
-
-// ------------------------------------------------------------------------------
-// 7. BUSCADOR AVANZADO INTERACTIVO DE COLABORADORES
-// ------------------------------------------------------------------------------
-function openCollabDropdown() {
-  const dropdown = document.getElementById('collab-dropdown-list');
-  renderCollaboratorDropdown(allCollaborators);
-  if (dropdown) dropdown.classList.remove('hidden');
-}
-
-function onCollabSearchInput(term) {
-  const dropdown = document.getElementById('collab-dropdown-list');
-  if (dropdown) dropdown.classList.remove('hidden');
-
-  const filtered = allCollaborators.filter(c => 
-    c.responsible_name.toLowerCase().includes(term.toLowerCase()) ||
-    c.responsible_cedula.includes(term)
-  );
-
-  renderCollaboratorDropdown(filtered);
-}
-
-function renderCollaboratorDropdown(list) {
-  const dropdown = document.getElementById('collab-dropdown-list');
-  if (!dropdown) return;
-  dropdown.innerHTML = '';
-
-  const allItem = document.createElement('div');
-  allItem.className = 'p-2.5 hover:bg-emerald-50 cursor-pointer flex items-center justify-between text-[#006837] font-bold';
-  allItem.innerHTML = '<span>👥 Ver todos los colaboradores</span>';
-  allItem.onclick = () => selectCollaborator('Todos');
-  dropdown.appendChild(allItem);
-
-  if (list.length === 0) {
-    const emptyItem = document.createElement('div');
-    emptyItem.className = 'p-3 text-center text-slate-400 italic text-[11px]';
-    emptyItem.textContent = 'No se encontraron colaboradores.';
-    dropdown.appendChild(emptyItem);
-    return;
-  }
-
-  list.forEach(c => {
-    const item = document.createElement('div');
-    item.className = 'p-2 hover:bg-slate-50 cursor-pointer flex items-center justify-between transition text-[#111827]';
-    item.innerHTML = `
-  < div class="truncate pr-2" >
-        <span class="font-extrabold text-[#111827] block truncate text-[11.5px]">👤 ${c.responsible_name}</span>
-        <span class="text-[10px] text-slate-500 font-mono font-bold">C.C. ${c.responsible_cedula}</span>
-      </div >
-  <span class="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-slate-100 text-[#111827] border border-slate-300 shrink-0">
-    ${c.count} eq.
-  </span>
-`;
-    item.onclick = () => selectCollaborator(c.responsible_name);
-    dropdown.appendChild(item);
-  });
-}
-
-function selectCollaborator(name) {
-  const input = document.getElementById('collab-search-input');
-  const clearBtn = document.getElementById('collab-clear-btn');
-  const banner = document.getElementById('collaborator-active-banner');
-  const activeName = document.getElementById('active-collaborator-name');
-  const dropdown = document.getElementById('collab-dropdown-list');
-
-  currentCollaborator = name;
-  if (dropdown) dropdown.classList.add('hidden');
-
-  if (name && name !== 'Todos') {
-    if (input) input.value = name;
-    if (clearBtn) clearBtn.classList.remove('hidden');
-    if (banner) banner.classList.remove('hidden');
-    if (activeName) activeName.textContent = name;
-  } else {
-    currentCollaborator = 'Todos';
-    if (input) input.value = '';
-    if (clearBtn) clearBtn.classList.add('hidden');
-    if (banner) banner.classList.add('hidden');
-  }
-
-  if (currentMainModule !== 'inventory') {
-    switchMainModule('inventory');
-  }
-
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-function clearCollaboratorFilter() {
-  selectCollaborator('Todos');
-}
-
-function handleSearch(term) {
-  currentSearch = term;
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-// ------------------------------------------------------------------------------
-// 8. FILTROS RÁPIDOS
-// ------------------------------------------------------------------------------
-function setFilter(filter) {
-  currentFilter = filter;
-  const buttons = ['Todos', 'Sin-Acta', 'Pendiente', 'Verificado'];
-  buttons.forEach(b => {
-    const el = document.getElementById(`filter - ${ b } `);
-    if (el) {
-      el.className = 'px-3 py-1.5 text-xs font-medium rounded-lg bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 transition';
-    }
-  });
-
-  const activeBtnKey = filter === 'Todos' ? 'Todos' : filter === 'Sin Acta' ? 'Sin-Acta' : filter === 'Pendiente de Firma' ? 'Pendiente' : 'Verificado';
-  const activeEl = document.getElementById(`filter - ${ activeBtnKey } `);
-  if (activeEl) {
-    activeEl.className = 'px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#006837] text-white shadow-sm transition';
-  }
-
-  if (currentMainModule !== 'inventory') {
-    switchMainModule('inventory');
-  }
-
-  renderTable();
-  if (window.lucide) lucide.createIcons();
-}
-
-// ------------------------------------------------------------------------------
-// 9. SINCRONIZACIÓN EN SEGUNDO PLANO SILENCIOSA (TOAST A 3 SEGUNDOS)
-// ------------------------------------------------------------------------------
-async function syncGLPI() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador de Inventario puede sincronizar con GLPI.');
-    return;
-  }
-
-  const btn = document.getElementById('btn-sync-glpi');
-  if (!btn || btn.dataset.syncing === 'true') return;
-
-  btn.dataset.syncing = 'true';
-  btn.disabled = true;
-  btn.innerHTML = `
-  < svg class="animate-spin h-3.5 w-3.5 text-white inline mr-1" xmlns = "http://www.w3.org/2000/svg" fill = "none" viewBox = "0 0 24 24" >
-      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-    </svg >
-  <span>Sincronizando...</span>
-`;
-
-  try {
-    const res = await fetch('/api/glpi/sync', { method: 'POST' });
-    const data = await res.json();
-
-    showToast('success', data.message || 'Sincronización completada con GLPI Somex.', 3000);
-
-    await loadAssets();
-    await loadCollaborators();
-
-  } catch (err) {
-    showToast('error', `Aviso al sincronizar: ${ err.message } `, 3000);
-  } finally {
-    btn.dataset.syncing = 'false';
-    btn.disabled = false;
-    btn.innerHTML = `
-  < i data - lucide="refresh-cw" class="h-3.5 w-3.5 text-emerald-200" ></i >
-    <span class="hidden lg:inline">Sincronizar GLPI</span>
-`;
-    if (window.lucide) lucide.createIcons();
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 10. AUDITORÍA QR CON ESCANEO 100% AUTOMÁTICO (CERO BOTÓN MANUAL)
-// ------------------------------------------------------------------------------
-function setAuditCycle(cycle) {
-  currentAuditCycle = cycle;
-
-  const btnBim = document.getElementById('btn-cycle-bimensual');
-  const btnSem = document.getElementById('btn-cycle-semestral');
-  const label = document.getElementById('audit-cycle-label');
-
-  if (label) label.textContent = cycle;
-
-  if (cycle === 'Bimensual') {
-    if (btnBim) btnBim.className = 'px-2.5 py-1 rounded-lg font-bold bg-[#006837] text-white transition text-xs shadow-sm cursor-pointer';
-    if (btnSem) btnSem.className = 'px-2.5 py-1 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition text-xs cursor-pointer';
-  } else {
-    if (btnBim) btnBim.className = 'px-2.5 py-1 rounded-lg font-medium text-slate-600 hover:text-slate-900 transition text-xs cursor-pointer';
-    if (btnSem) btnSem.className = 'px-2.5 py-1 rounded-lg font-bold bg-[#006837] text-white transition text-xs shadow-sm cursor-pointer';
-  }
-
-  loadScannedAssets();
-}
-
-function toggleCameraScan() {
-  if (isCameraScanning) {
-    stopCameraScan();
-  } else {
-    startCameraScan();
-  }
-}
-
-function startCameraScan() {
-  const wrapper = document.getElementById('camera-scanner-wrapper');
-  const btnText = document.getElementById('btn-toggle-camera-text');
-
-  if (typeof Html5Qrcode === 'undefined') {
-    showToast('error', 'Librería de lectura QR no disponible.');
-    return;
-  }
-
-  if (wrapper) wrapper.classList.remove('hidden');
-  if (btnText) btnText.textContent = '✕ Detener Cámara';
-  isCameraScanning = true;
-
-  try {
-    if (!html5QrScanner) {
-      html5QrScanner = new Html5Qrcode('qr-camera-reader');
-    }
-
-    const config = {
-      fps: 10,
-      qrbox: { width: 250, height: 250 }
+  setTxFilter(filter) {
+    this.state.txFilter = filter;
+    const btns = {
+      todos: document.getElementById('filterBtnTodos'),
+      gasto: document.getElementById('filterBtnGastos'),
+      ingreso: document.getElementById('filterBtnIngresos')
     };
 
-    html5QrScanner.start(
-      { facingMode: 'environment' },
-      config,
-      (decodedText) => {
-        onQrCodeDetected(decodedText);
-      },
-      (error) => {}
-    ).catch(err => {
-      console.warn('Fallback a cámara frontal...', err);
-      html5QrScanner.start(
-        { facingMode: 'user' },
-        config,
-        (decodedText) => onQrCodeDetected(decodedText),
-        (err) => {}
-      ).catch(e => {
-        showToast('error', `No se pudo abrir la cámara: ${ e } `);
-        stopCameraScan();
-      });
+    Object.keys(btns).forEach(key => {
+      const btn = btns[key];
+      if (!btn) return;
+      if (key === filter) {
+        btn.className = 'min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 touch-press';
+      } else {
+        btn.className = 'min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white touch-press';
+      }
     });
 
-  } catch (err) {
-    showToast('error', `Error al acceder a la cámara: ${ err.message } `);
-    stopCameraScan();
+    this.renderTransactionsList();
+    if (navigator.vibrate) navigator.vibrate(10);
   }
-}
 
-function stopCameraScan() {
-  const wrapper = document.getElementById('camera-scanner-wrapper');
-  const btnText = document.getElementById('btn-toggle-camera-text');
-
-  if (wrapper) wrapper.classList.add('hidden');
-  if (btnText) btnText.textContent = 'Activar Cámara para Escanear QR';
-  isCameraScanning = false;
-
-  if (html5QrScanner) {
-    html5QrScanner.stop().catch(() => {});
-  }
-}
-
-function onQrCodeDetected(code) {
-  const input = document.getElementById('qr-scan-input');
-  if (input) input.value = code;
-  processAssetScan(code);
-}
-
-function handleScanQRAuto(val) {
-  if (autoScanTimer) clearTimeout(autoScanTimer);
-  const code = val.trim();
-  if (code.length >= 4) {
-    autoScanTimer = setTimeout(() => {
-      processAssetScan(code);
-    }, 350);
-  }
-}
-
-async function handleScanQR() {
-  if (autoScanTimer) clearTimeout(autoScanTimer);
-  const input = document.getElementById('qr-scan-input');
-  if (!input) return;
-  const code = input.value.trim();
-  if (!code) return;
-  await processAssetScan(code);
-}
-
-async function processAssetScan(code) {
-  try {
-    const res = await fetch('/api/audit/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asset_code: code, cycle: currentAuditCycle })
+  renderDashboard() {
+    const { year, month } = this.state.selectedMonth;
+    const monthTxs = (this.state.transactions || []).filter(tx => {
+      if (!tx.date) return false;
+      const d = new Date(tx.date + 'T00:00:00');
+      return d.getFullYear() === year && d.getMonth() === month;
     });
-    const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.detail || 'No se pudo registrar el escaneo');
-    }
+    let totalIncome = 0;
+    let totalExpense = 0;
+    const categoryTotals = {};
 
-    const input = document.getElementById('qr-scan-input');
-    if (input) {
-      input.value = '';
-      input.focus();
-    }
-
-    showToast('success', `¡Activo ${ data.asset.asset_tag } (${ data.asset.type }) verificado en ${ currentAuditCycle } !`, 3000);
-
-    // Actualizar datos de auditoría
-    await loadScannedAssets();
-    await loadAssets();
-
-    if (currentMainModule === 'gallery') {
-      loadPhotoGallery();
-    }
-
-  } catch (err) {
-    showToast('error', err.message, 3000);
-  }
-}
-
-let currentAuditSubtab = 'scanned';
-
-function switchAuditSubtab(tab) {
-  currentAuditSubtab = tab;
-  const btnScanned = document.getElementById('audit-subtab-scanned-btn');
-  const btnPending = document.getElementById('audit-subtab-pending-btn');
-  const viewScanned = document.getElementById('audit-subview-scanned');
-  const viewPending = document.getElementById('audit-subview-pending');
-
-  if (tab === 'scanned') {
-    if (btnScanned) btnScanned.className = 'py-3 px-4 font-bold text-[#006837] border-b-2 border-[#006837] transition flex items-center space-x-1.5 cursor-pointer';
-    if (btnPending) btnPending.className = 'py-3 px-4 font-semibold text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer';
-    if (viewScanned) viewScanned.classList.remove('hidden');
-    if (viewPending) viewPending.classList.add('hidden');
-  } else {
-    if (btnScanned) btnScanned.className = 'py-3 px-4 font-semibold text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer';
-    if (btnPending) btnPending.className = 'py-3 px-4 font-bold text-amber-700 border-b-2 border-amber-600 transition flex items-center space-x-1.5 cursor-pointer';
-    if (viewScanned) viewScanned.classList.add('hidden');
-    if (viewPending) viewPending.classList.remove('hidden');
-  }
-
-  if (window.lucide) lucide.createIcons();
-}
-
-async function loadScannedAssets() {
-  try {
-    const res = await fetch(`/ api / audit / scanned ? cycle = ${ currentAuditCycle } `);
-    const data = await res.json();
-    if (res.ok) {
-      scannedAssets = data.scanned || [];
-      const pendingAssets = data.pending || [];
-
-      const kTotal = document.getElementById('audit-kpi-total');
-      const kScanned = document.getElementById('audit-kpi-scanned');
-      const kPending = document.getElementById('audit-kpi-pending');
-      const pPct = document.getElementById('audit-progress-percent');
-      const pBar = document.getElementById('audit-progress-bar');
-      const tabScanned = document.getElementById('scanned-tab-count');
-      const tabPending = document.getElementById('pending-tab-count');
-
-      if (kTotal) kTotal.textContent = data.total;
-      if (kScanned) kScanned.textContent = data.count;
-      if (kPending) kPending.textContent = data.pending_count;
-      if (pPct) pPct.textContent = `${ data.compliance_percentage }% `;
-      if (pBar) pBar.style.width = `${ data.compliance_percentage }% `;
-      if (tabScanned) tabScanned.textContent = data.count;
-      if (tabPending) tabPending.textContent = data.pending_count;
-
-      renderScannedGrid(scannedAssets);
-      renderPendingAuditTable(pendingAssets);
-    }
-  } catch (err) {
-    console.error('Error cargando estado dinámico de auditoría:', err);
-  }
-}
-
-// REQUERIMIENTO: ALTO CONTRASTE (#111827 / #1E293B) EN CUADRÍCULA DE ESCANEADOS
-function renderScannedGrid(list) {
-  const grid = document.getElementById('scanned-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-
-  if (list.length === 0) {
-    grid.innerHTML = `
-  < div class="col-span-full py-12 text-center text-[#111827] bg-slate-50 border border-slate-200 rounded-2xl" >
-        <i data-lucide="qr-code" class="h-8 w-8 mx-auto mb-2 text-slate-400"></i>
-        <p class="text-xs font-bold text-[#111827]">No hay equipos escaneados en este ciclo ${currentAuditCycle}.</p>
-        <p class="text-[11px] text-slate-600 mt-1">Usa la cámara web/celular o la pistola lectora arriba para verificar la presencia física de los activos.</p>
-      </div >
-  `;
-    if (window.lucide) lucide.createIcons();
-    return;
-  }
-
-  list.forEach(asset => {
-    const card = document.createElement('div');
-    card.className = 'bg-white border-2 border-slate-200 hover:border-[#006837] rounded-xl overflow-hidden shadow-sm transition flex flex-col';
-
-    const cleanTag = cleanAssetTag(asset.asset_tag);
-    const photoUrl = asset.photo_url || '/static/demo_laptop.svg';
-
-    card.innerHTML = `
-  < div class="relative h-32 bg-slate-100 border-b border-slate-200 overflow-hidden flex items-center justify-center group" >
-        <img src="${photoUrl}" alt="Foto de ${asset.asset_tag}" class="w-full h-full object-cover" />
-        <span class="absolute top-2 right-2 px-2 py-0.5 rounded text-[9.5px] font-extrabold bg-[#006837] text-white shadow-sm flex items-center space-x-1">
-          <i data-lucide="check" class="h-2.5 w-2.5"></i>
-          <span>VERIFICADO</span>
-        </span>
-        <span class="absolute bottom-2 left-2 px-2 py-0.5 rounded text-[10.5px] font-mono font-extrabold bg-white text-[#006837] border border-slate-300 shadow-md">
-          ${cleanTag}
-        </span>
-      </div >
-
-  <div class="p-3.5 space-y-2 text-xs flex-1 flex flex-col justify-between">
-    <div>
-      <div class="flex items-center justify-between">
-        <span class="font-extrabold text-[#111827] text-xs">${asset.type}</span>
-        <span class="text-[10.5px] text-[#1E293B] font-mono font-bold">${asset.serial}</span>
-      </div>
-      <p class="text-[#111827] font-bold text-xs truncate mt-1">👤 ${asset.responsible_name}</p>
-      <p class="text-[10.5px] text-[#1E293B] font-mono font-bold mt-0.5">C.C. ${asset.responsible_cedula}</p>
-    </div>
-
-    <div class="pt-2 border-t border-slate-200 flex items-center justify-between text-[10.5px]">
-      <span class="flex items-center space-x-1 text-[#006837] font-extrabold">
-        <i data-lucide="check-circle" class="h-3.5 w-3.5"></i>
-        <span>${asset.last_scanned_at || 'Hoy'}</span>
-      </span>
-      <span class="px-2 py-0.5 rounded bg-emerald-50 text-[#006837] border border-emerald-300 font-extrabold text-[10px]">
-        ${asset.audit_cycle || currentAuditCycle}
-      </span>
-    </div>
-  </div>
-`;
-
-    grid.appendChild(card);
-  });
-
-  if (window.lucide) lucide.createIcons();
-}
-
-// REQUERIMIENTO: SE ELIMINÓ POR COMPLETO LA COLUMNA 'ACCIÓN' Y EL BOTÓN '✓ ESCANEAR'
-function renderPendingAuditTable(list) {
-  const tbody = document.getElementById('pending-audit-table-body');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  if (list.length === 0) {
-    tbody.innerHTML = `
-  < tr >
-  <td colspan="5" class="py-10 text-center text-[#006837] font-bold text-xs">
-    <i data-lucide="check-check" class="h-7 w-7 mx-auto mb-1 text-[#006837]"></i>
-    ¡Excelente! Todos los activos del inventario han sido verificados al 100% en este ciclo.
-  </td>
-      </tr >
-  `;
-    if (window.lucide) lucide.createIcons();
-    return;
-  }
-
-  list.forEach(asset => {
-    const tr = document.createElement('tr');
-    tr.className = 'hover:bg-amber-50/40 transition border-b border-slate-200 text-[#111827] font-medium';
-
-    const cleanTag = cleanAssetTag(asset.asset_tag);
-
-    tr.innerHTML = `
-  < td class="py-3 px-3 font-extrabold text-[#111827] truncate text-[11.5px]" > ${ asset.type }</td >
-      <td class="py-3 px-3 font-mono font-extrabold text-[#006837] truncate text-xs" title="Placa: ${asset.asset_tag}">${cleanTag}</td>
-      <td class="py-3 px-3 font-mono font-bold text-[#111827] text-[11px] truncate">${asset.serial}</td>
-      <td class="py-3 px-3 text-[#111827] font-bold truncate text-[11.5px]">👤 ${asset.responsible_name}</td>
-      <td class="py-3 px-3">
-        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-extrabold ${
-          asset.document_status === 'Pendiente de Firma'
-            ? 'bg-amber-100 text-[#78350f] border border-amber-300'
-            : 'bg-rose-100 text-[#881337] border border-rose-300'
-        }">
-          ${asset.document_status || 'Sin Acta'}
-        </span>
-      </td>
-`;
-    tbody.appendChild(tr);
-  });
-
-  if (window.lucide) lucide.createIcons();
-}
-
-function downloadAuditPDF() {
-  showToast('success', 'Generando informe oficial en PDF para Control Organizacional...', 3000);
-  const url = `/ api / audit / report - pdf ? cycle = ${ encodeURIComponent(currentAuditCycle) } `;
-  window.open(url, '_blank');
-}
-
-async function resetAuditCyclePrompt() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede reiniciar rondas de auditoría.');
-    return;
-  }
-
-  const ok = confirm(`¿Deseas reiniciar la ronda de auditoría ${ currentAuditCycle }? Esto marcará todos los activos como pendientes de escaneo.`);
-  if (!ok) return;
-
-  try {
-    const res = await fetch('/api/audit/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cycle: currentAuditCycle })
+    monthTxs.forEach(tx => {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'ingreso') {
+        totalIncome += amt;
+      } else if (tx.type === 'gasto') {
+        totalExpense += amt;
+        categoryTotals[tx.category] = (categoryTotals[tx.category] || 0) + amt;
+      }
     });
-    const data = await res.json();
-    if (res.ok) {
-      showToast('success', data.message || `Ronda ${ currentAuditCycle } reiniciada.`, 3000);
-      await loadScannedAssets();
-      await loadAssets();
+
+    const netBalance = totalIncome - totalExpense;
+    const savingsRate = totalIncome > 0 ? Math.max(0, Math.round((netBalance / totalIncome) * 100)) : 0;
+    const budgetUsedPercent = totalIncome > 0 ? Math.min(100, Math.round((totalExpense / totalIncome) * 100)) : 0;
+
+    // Actualizar KPIs
+    const kpiIncome = document.getElementById('kpiIncome');
+    const kpiExpense = document.getElementById('kpiExpense');
+    const kpiBalance = document.getElementById('kpiBalance');
+    const kpiSavingsRate = document.getElementById('kpiSavingsRate');
+
+    if (kpiIncome) kpiIncome.textContent = this.formatCurrency(totalIncome);
+    if (kpiExpense) kpiExpense.textContent = this.formatCurrency(totalExpense);
+    if (kpiBalance) {
+      kpiBalance.textContent = this.formatCurrency(netBalance);
+      kpiBalance.className = `text-2xl sm:text-3xl font-extrabold tabular-nums tracking-tight mt-0.5 ${netBalance >= 0 ? 'text-white' : 'text-rose-400'}`;
     }
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 11. MÓDULO DE FOTOGRAFÍAS ORGANIZADO POR CARPETAS (FECHA / CICLO) + ELIMINACIÓN
-// ------------------------------------------------------------------------------
-function groupPhotosIntoFolders(assets) {
-  const withPhotos = assets.filter(a => a.photo_url && a.photo_url.trim().length > 0);
-  const groups = {};
-
-  withPhotos.forEach(a => {
-    let folderKey = 'inventario_base';
-    let folderName = 'Inventario Base — Fotografías Generales';
-    let cycleName = a.audit_cycle || 'General';
-    let dateSort = '1970-01-01';
-
-    if (a.last_scanned_at && a.last_scanned_at.trim().length > 0) {
-      const scanDateStr = a.last_scanned_at.trim().split(' ')[0].split('T')[0];
-      const cycle = a.audit_cycle || 'Bimensual';
-      folderKey = `${ scanDateStr }_${ cycle } `;
-      dateSort = scanDateStr;
-
-      let friendlyDate = scanDateStr;
-      try {
-        const parts = scanDateStr.split('-');
-        if (parts.length === 3) {
-          const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-          const mIdx = parseInt(parts[1], 10) - 1;
-          friendlyDate = `${ parts[2] } ${ months[mIdx] || parts[1] } ${ parts[0] } `;
-        }
-      } catch (e) {}
-
-      folderName = `${ friendlyDate } — Auditoría ${ cycle } `;
-      cycleName = cycle;
+    if (kpiSavingsRate) {
+      kpiSavingsRate.textContent = `${savingsRate}%`;
+      kpiSavingsRate.className = `text-base font-bold tabular-nums ${netBalance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
     }
 
-    if (!groups[folderKey]) {
-      groups[folderKey] = {
-        id: folderKey,
-        name: folderName,
-        cycle: cycleName,
-        dateSort: dateSort,
-        assets: []
-      };
+    // Barra de progreso mensual
+    const progressBar = document.getElementById('budgetProgressBar');
+    const pLeft = document.getElementById('progressBarLabelLeft');
+    const pRight = document.getElementById('progressBarLabelRight');
+    if (progressBar) {
+      progressBar.style.width = `${budgetUsedPercent}%`;
+      if (budgetUsedPercent > 90) {
+        progressBar.className = 'h-full rounded-full bg-rose-500 transition-all duration-700';
+      } else if (budgetUsedPercent > 70) {
+        progressBar.className = 'h-full rounded-full bg-amber-500 transition-all duration-700';
+      } else {
+        progressBar.className = 'h-full rounded-full bg-gradient-to-r from-emerald-500 to-indigo-500 transition-all duration-700';
+      }
     }
-    groups[folderKey].assets.push(a);
-  });
+    if (pLeft) pLeft.textContent = `${budgetUsedPercent}% de los ingresos consumidos`;
+    if (pRight) {
+      if (totalIncome === 0 && totalExpense === 0) {
+        pRight.textContent = 'Fondo listo e iniciado en ceros';
+      } else {
+        pRight.textContent = netBalance >= 0
+          ? `${this.formatCurrency(netBalance)} restante en el fondo`
+          : `Déficit: ${this.formatCurrency(Math.abs(netBalance))}`;
+      }
+    }
 
-  return Object.values(groups).sort((a, b) => b.dateSort.localeCompare(a.dateSort));
-}
-
-function loadPhotoGallery() {
-  const foldersContainer = document.getElementById('gallery-folders-container');
-  const photosContainer = document.getElementById('gallery-photos-container');
-  const grid = document.getElementById('gallery-grid');
-  const countSpan = document.getElementById('gallery-total-count');
-  const breadcrumb = document.getElementById('gallery-breadcrumb');
-  const backBtn = document.getElementById('gallery-back-btn');
-  const btnDeleteAll = document.getElementById('btn-delete-all-photos');
-  const btnDeleteFolder = document.getElementById('btn-delete-current-folder');
-
-  if (!foldersContainer || !photosContainer || !grid) return;
-
-  const isAdmin = currentUser && currentUser.role === 'admin';
-  cachedGalleryFolders = groupPhotosIntoFolders(allAssets);
-
-  // Total de fotos en la galería
-  const totalPhotos = allAssets.filter(a => a.photo_url && a.photo_url.trim().length > 0).length;
-  if (countSpan) countSpan.textContent = totalPhotos;
-
-  // Botón Vaciar Galería (solo visible para Administrador si hay fotos)
-  if (btnDeleteAll) {
-    btnDeleteAll.style.display = (isAdmin && totalPhotos > 0) ? 'inline-flex' : 'none';
+    this.renderCategoryDonutChart(categoryTotals, totalExpense);
+    this.renderTransactionsList();
+    this.refreshSmartInsights();
   }
 
-  // ESTADO 1: Vista Dentro de una Carpeta Específica
-  if (currentGalleryFolderId) {
-    const currentFolder = cachedGalleryFolders.find(f => f.id === currentGalleryFolderId);
-    if (!currentFolder || currentFolder.assets.length === 0) {
-      currentGalleryFolderId = null;
-      loadPhotoGallery();
+  renderCategoryDonutChart(categoryTotals, totalExpense) {
+    const canvas = document.getElementById('categoryDonutChart');
+    const emptyState = document.getElementById('chartEmptyState');
+    const legendsGrid = document.getElementById('categoryLegendsGrid');
+    if (!canvas) return;
+
+    const categories = Object.keys(categoryTotals);
+    if (categories.length === 0 || totalExpense === 0) {
+      if (this.chartInstance) this.chartInstance.destroy();
+      canvas.classList.add('hidden');
+      if (emptyState) emptyState.classList.remove('hidden');
+      if (legendsGrid) legendsGrid.innerHTML = '';
       return;
     }
 
-    foldersContainer.classList.add('hidden');
-    photosContainer.classList.remove('hidden');
-    if (backBtn) backBtn.classList.remove('hidden');
+    canvas.classList.remove('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
 
-    if (breadcrumb) {
-      breadcrumb.innerHTML = `
-  < i data - lucide="folder-open" class="h-4 w-4 text-[#006837]" ></i >
-        <span class="text-[#006837]">${currentFolder.name}</span>
-        <span class="text-slate-400 font-normal">(${currentFolder.assets.length} fotografías)</span>
-`;
-    }
+    const labels = [];
+    const data = [];
+    const colors = [];
 
-    if (btnDeleteFolder) {
-      btnDeleteFolder.style.display = isAdmin ? 'inline-flex' : 'none';
-    }
+    // Colores por categoría temática
+    const colorMap = {
+      'Servicios públicos': '#f59e0b',
+      'Administración del conjunto': '#6366f1',
+      'Mantenimiento de la moto': '#06b6d4',
+      'Gasolina': '#ef4444',
+      'Mercado / Supermercado': '#10b981',
+      'Otros': '#8b5cf6'
+    };
 
-    grid.innerHTML = '';
-    currentFolder.assets.forEach(asset => {
-      const card = document.createElement('div');
-      card.className = 'relative bg-white border-2 border-slate-200 hover:border-[#006837] rounded-xl overflow-hidden shadow-sm transition flex flex-col group';
+    categories.sort((a, b) => categoryTotals[b] - categoryTotals[a]);
 
-      const cleanTag = cleanAssetTag(asset.asset_tag);
-      const photoUrl = asset.photo_url;
-      const isAuditScanned = asset.is_scanned === 1;
-
-      card.innerHTML = `
-  < div class="relative h-28 bg-slate-100 border-b border-slate-200 overflow-hidden flex items-center justify-center cursor-pointer" onclick = "openDocModalToTab(${asset.id}, 'photo')" >
-          <img src="${photoUrl}" alt="Foto de ${asset.asset_tag}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-          <span class="absolute bottom-1.5 left-1.5 px-1.5 py-0.2 rounded text-[10px] font-mono font-extrabold bg-white text-[#006837] border border-slate-300 shadow-sm">
-            ${cleanTag}
-          </span>
-          ${
-  isAuditScanned ? `
-            <span class="absolute top-1.5 left-1.5 px-1.5 py-0.2 rounded text-[8.5px] font-extrabold bg-[#006837] text-white shadow-sm flex items-center space-x-0.5">
-              <i data-lucide="check-circle" class="h-2.5 w-2.5"></i>
-              <span>QR</span>
-            </span>
-          ` : ''
-}
-
-          < !--Botón de eliminación individual de foto(Solo Administrador)-- >
-  ${
-    isAdmin ? `
-            <button
-              onclick="event.stopPropagation(); confirmDeleteSinglePhoto(${asset.id}, '${cleanTag}')"
-              class="absolute top-1.5 right-1.5 p-1 rounded-md bg-white/90 hover:bg-rose-600 text-slate-600 hover:text-white border border-slate-300 hover:border-rose-600 transition shadow-sm cursor-pointer"
-              title="Eliminar fotografía de ${cleanTag}"
-            >
-              <i data-lucide="trash-2" class="h-3.5 w-3.5"></i>
-            </button>
-          ` : ''
-}
-        </div >
-
-  <div class="p-2.5 space-y-0.5 text-[11px] cursor-pointer" onclick="openDocModalToTab(${asset.id}, 'photo')">
-    <div class="flex items-center justify-between">
-      <span class="font-extrabold text-[#111827] truncate">${asset.type}</span>
-      <span class="text-[9.5px] text-[#006837] font-bold">${asset.sede || 'Medellín'}</span>
-    </div>
-    <span class="text-[#111827] font-semibold block truncate text-[10.5px]">👤 ${asset.responsible_name}</span>
-    <span class="text-slate-500 block font-mono text-[9.5px] truncate">${asset.serial}</span>
-  </div>
-`;
-
-      grid.appendChild(card);
+    categories.forEach(cat => {
+      labels.push(cat);
+      data.push(categoryTotals[cat]);
+      colors.push(colorMap[cat] || '#64748b');
     });
 
-    if (window.lucide) lucide.createIcons();
-    return;
-  }
-
-  // ESTADO 2: Vista Principal de Carpetas Agrupadas por Fecha/Ciclo
-  photosContainer.classList.add('hidden');
-  foldersContainer.classList.remove('hidden');
-  if (backBtn) backBtn.classList.add('hidden');
-  if (btnDeleteFolder) btnDeleteFolder.style.display = 'none';
-
-  if (breadcrumb) {
-    breadcrumb.innerHTML = `
-  < i data - lucide="folder" class="h-4 w-4 text-[#006837]" ></i >
-    <span>Carpetas por Jornada y Ciclo de Auditoría</span>
-`;
-  }
-
-  foldersContainer.innerHTML = '';
-
-  if (cachedGalleryFolders.length === 0) {
-    foldersContainer.innerHTML = `
-  < div class="col-span-full py-14 text-center text-[#111827] bg-white border-2 border-slate-200 rounded-2xl shadow-sm" >
-        <i data-lucide="camera" class="h-10 w-10 mx-auto mb-2 text-slate-400"></i>
-        <p class="text-sm font-extrabold text-[#111827]">No hay fotografías registradas aún en el sistema.</p>
-        <p class="text-xs text-slate-500 mt-1 max-w-md mx-auto">Al escanear un activo con la cámara web/celular o adjuntar su foto en el inventario, se organizará automáticamente por su jornada correspondiente aquí.</p>
-      </div >
-  `;
-    if (window.lucide) lucide.createIcons();
-    return;
-  }
-
-  cachedGalleryFolders.forEach(folder => {
-    const card = document.createElement('div');
-    card.className = 'bg-white border-2 border-slate-200 hover:border-[#006837] rounded-2xl p-4 shadow-sm hover:shadow-md transition flex flex-col justify-between group cursor-pointer';
-    card.onclick = () => openGalleryFolder(folder.id);
-
-    // Miniaturas de muestra (hasta 3 fotos)
-    const previewAssets = folder.assets.slice(0, 3);
-    const thumbsHtml = previewAssets.map(a => `
-  < div class="h-10 w-10 rounded-lg overflow-hidden border border-slate-300 bg-slate-100 shrink-0 shadow-sm" >
-    <img src="${a.photo_url}" class="h-full w-full object-cover" />
-      </div >
-  `).join('');
-
-    card.innerHTML = `
-  < div class="space-y-3" >
-        <div class="flex items-start justify-between">
-          <div class="h-12 w-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#006837] shadow-sm group-hover:bg-[#006837] group-hover:text-white transition">
-            <i data-lucide="folder" class="h-6 w-6"></i>
-          </div>
-          
-          <div class="flex items-center space-x-1.5">
-            <span class="px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-emerald-50 text-[#006837] border border-emerald-200">
-              ${folder.cycle}
-            </span>
-            ${isAdmin ? `
-              <button
-                onclick="event.stopPropagation(); confirmDeleteFolderPhotos('${folder.id}', '${folder.name}', ${JSON.stringify(folder.assets.map(a => a.id))})"
-                class="p-1 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                title="Vaciar carpeta ${folder.name}"
-              >
-                <i data-lucide="trash-2" class="h-4 w-4"></i>
-              </button>
-            ` : ''}
-          </div>
-        </div>
-
-        <div>
-          <h3 class="font-extrabold text-[#111827] text-sm group-hover:text-[#006837] transition leading-snug">
-            ${folder.name}
-          </h3>
-          <p class="text-xs text-slate-600 font-semibold mt-0.5">
-            📁 ${folder.assets.length} fotografías verificadas
-          </p>
-        </div>
-      </div >
-
-  <div class="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between">
-    <div class="flex items-center -space-x-1.5">
-      ${thumbsHtml}
-    </div>
-    <span class="text-xs font-bold text-[#006837] group-hover:underline flex items-center space-x-1">
-      <span>Abrir carpeta</span>
-      <i data-lucide="chevron-right" class="h-3.5 w-3.5"></i>
-    </span>
-  </div>
-`;
-
-    foldersContainer.appendChild(card);
-  });
-
-  if (window.lucide) lucide.createIcons();
-}
-
-function openGalleryFolder(folderId) {
-  currentGalleryFolderId = folderId;
-  loadPhotoGallery();
-}
-
-function closeGalleryFolder() {
-  currentGalleryFolderId = null;
-  loadPhotoGallery();
-}
-
-// Eliminación individual de foto
-async function confirmDeleteSinglePhoto(assetId, assetTag) {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede eliminar fotografías.');
-    return;
-  }
-
-  const ok = confirm(`¿Estás seguro de que deseas eliminar la fotografía del activo "${assetTag}" ? Esta acción borrará el archivo y no se puede deshacer.`);
-  if (!ok) return;
-
-  try {
-    const res = await fetch(`/ api / assets / ${ assetId }/photo`, { method: 'DELETE' });
-const data = await res.json();
-if (!res.ok) throw new Error(data.detail || 'Error al eliminar la fotografía');
-
-showToast('success', data.message || 'Fotografía eliminada con éxito.', 3000);
-await loadAssets();
-loadPhotoGallery();
-  } catch (err) {
-  showToast('error', err.message);
-}
-}
-
-// Eliminación masiva de carpeta
-async function confirmDeleteCurrentFolder() {
-  if (!currentGalleryFolderId) return;
-  const currentFolder = cachedGalleryFolders.find(f => f.id === currentGalleryFolderId);
-  if (!currentFolder) return;
-  const assetIds = currentFolder.assets.map(a => a.id);
-  await confirmDeleteFolderPhotos(currentFolder.id, currentFolder.name, assetIds);
-}
-
-async function confirmDeleteFolderPhotos(folderId, folderName, assetIds) {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede eliminar fotografías.');
-    return;
-  }
-
-  const ok = confirm(`¿Estás seguro de que deseas eliminar TODAS las ${assetIds.length} fotografías de la jornada:\n"${folderName}"?\n\nEsta acción borrará los archivos físicos del servidor.`);
-  if (!ok) return;
-
-  try {
-    const res = await fetch('/api/photos/delete-batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asset_ids: assetIds, folder_name: folderName })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al eliminar las fotografías');
-
-    showToast('success', data.message || 'Fotografías eliminadas con éxito.', 3000);
-    currentGalleryFolderId = null;
-    await loadAssets();
-    loadPhotoGallery();
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-// Vaciar toda la galería
-async function confirmDeleteAllPhotos() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede vaciar la galería.');
-    return;
-  }
-
-  const ok = confirm(`⚠️ ADVERTENCIA CRÍTICA: ¿Estás seguro de que deseas vaciar TODA la galería de fotografías?\n\nSe eliminarán permanentemente todas las imágenes de todos los activos en el servidor.`);
-  if (!ok) return;
-
-  try {
-    const res = await fetch('/api/photos/delete-all', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al vaciar la galería');
-
-    showToast('success', data.message || 'Todas las fotografías han sido eliminadas.', 3000);
-    currentGalleryFolderId = null;
-    await loadAssets();
-    loadPhotoGallery();
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-async function uploadAssetPhotoFromModal() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede subir fotografías.');
-    return;
-  }
-
-  if (!activeAsset) return;
-  const input = document.getElementById('modal-photo-file-input');
-  if (!input.files || input.files.length === 0) {
-    showToast('error', 'Selecciona un archivo de imagen (JPG, PNG).');
-    return;
-  }
-
-  const file = input.files[0];
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const res = await fetch(`/api/assets/${activeAsset.id}/photo`, {
-      method: 'POST',
-      body: formData
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al subir la fotografía');
-
-    activeAsset.photo_url = data.photo_url;
-    showToast('success', 'Fotografía guardada con éxito.');
-
-    const img = document.getElementById('modal-asset-photo-img');
-    const placeholder = document.getElementById('modal-asset-photo-placeholder');
-    if (img && placeholder) {
-      img.src = data.photo_url;
-      img.classList.remove('hidden');
-      placeholder.classList.add('hidden');
+    if (this.chartInstance) {
+      this.chartInstance.destroy();
     }
 
-    await loadAssets();
-    if (currentMainModule === 'gallery') loadPhotoGallery();
-
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 12. MÓDULO DE ACTIVOS DADOS DE BAJA (ALTO CONTRASTE + DOCUMENTOS)
-// ------------------------------------------------------------------------------
-async function loadBajas() {
-  const tbody = document.getElementById('bajas-table-body');
-  const footer = document.getElementById('bajas-footer-count');
-  if (!tbody) return;
-  tbody.innerHTML = '';
-
-  try {
-    const res = await fetch('/api/bajas');
-    const data = await res.json();
-    if (res.ok) {
-      allBajas = data.bajas || [];
-      if (footer) footer.textContent = `${allBajas.length} equipo(s) retirado(s) formalmente`;
-
-      if (allBajas.length === 0) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="8" class="py-12 text-center text-[#111827] font-semibold text-xs">
-              <i data-lucide="archive" class="h-6 w-6 mx-auto mb-2 text-slate-400"></i>
-              No hay activos dados de baja en el registro histórico.
-            </td>
-          </tr>
-        `;
-        if (window.lucide) lucide.createIcons();
-        return;
+    const ctx = canvas.getContext('2d');
+    this.chartInstance = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: colors,
+          borderColor: '#07090e',
+          borderWidth: 3,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '70%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            titleColor: '#f8fafc',
+            bodyColor: '#e2e8f0',
+            borderColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              label: (item) => {
+                const val = item.raw || 0;
+                const pct = Math.round((val / totalExpense) * 100);
+                return ` ${this.formatCurrency(val)} (${pct}%)`;
+              }
+            }
+          }
+        }
       }
+    });
 
-      allBajas.forEach(asset => {
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-slate-50 transition border-b border-slate-200 text-[#111827] font-medium';
+    // Leyendas táctiles amplias
+    if (legendsGrid) {
+      legendsGrid.innerHTML = categories.map((cat, idx) => {
+        const val = categoryTotals[cat];
+        const pct = Math.round((val / totalExpense) * 100);
+        const col = colors[idx];
+        const isMarket = cat === 'Mercado / Supermercado';
 
-        const cleanTag = cleanAssetTag(asset.asset_tag);
-
-        tr.innerHTML = `
-          <td class="py-3 px-3 font-extrabold text-[#111827] truncate text-[11.5px]">${asset.type}</td>
-          <td class="py-3 px-3 font-mono font-extrabold text-amber-800 truncate text-xs" title="Código: ${asset.asset_tag}">${cleanTag}</td>
-          <td class="py-3 px-3 font-mono font-bold text-[#111827] truncate text-[11px]">${asset.serial}</td>
-          <td class="py-3 px-3 text-[#111827] font-bold truncate text-[11.5px]">👤 ${asset.responsible_name}</td>
-          <td class="py-3 px-3 font-mono font-bold text-[#111827] text-[11px]">${asset.baja_date || '-'}</td>
-          <td class="py-3 px-3 text-[#111827] font-medium truncate text-[11px]" title="${asset.baja_reason || ''}">${asset.baja_reason || '-'}</td>
-          
-          <!-- DOCUMENTO 1 - ACTA DE BAJA PDF REAL -->
-          <td class="py-3 px-2 text-center">
-            ${asset.baja_acta_url ? `
-              <a 
-                href="${asset.baja_acta_url}" 
-                target="_blank" 
-                download 
-                class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-amber-100 text-[#78350f] hover:bg-amber-200 border border-amber-300 transition text-[11px] font-extrabold shadow-sm"
-                title="Descargar / Ver Acta de Baja"
-              >
-                <i data-lucide="file-text" class="h-3 w-3"></i>
-                <span>Acta</span>
-              </a>
-            ` : '<span class="text-slate-400 font-bold text-[10px]">-</span>'}
-          </td>
-
-          <!-- DOCUMENTO 2 - CERTIFICADO DISPOSICIÓN FINAL RAEE PDF REAL -->
-          <td class="py-3 px-2 text-center">
-            ${asset.disposicion_final_url ? `
-              <a 
-                href="${asset.disposicion_final_url}" 
-                target="_blank" 
-                download 
-                class="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-[#00522c] hover:bg-emerald-200 border border-emerald-300 transition text-[11px] font-extrabold shadow-sm"
-                title="Descargar / Ver Certificado Disposición Final RAEE"
-              >
-                <i data-lucide="shield-check" class="h-3 w-3"></i>
-                <span>RAEE</span>
-              </a>
-            ` : '<span class="text-slate-400 font-bold text-[10px]">-</span>'}
-          </td>
+        return `
+          <div class="flex items-center justify-between p-2.5 rounded-xl bg-white/[0.04] border border-white/5 min-h-[44px]">
+            <div class="flex items-center space-x-2 truncate">
+              <span class="w-3 h-3 rounded-full shrink-0" style="background-color: ${col};"></span>
+              <span class="truncate font-semibold text-xs text-slate-200">${cat}</span>
+              ${isMarket ? `<button onclick="app.switchTab('market')" class="text-[10px] text-emerald-400 underline shrink-0 hover:text-emerald-300">Ver lista</button>` : ''}
+            </div>
+            <div class="text-right shrink-0 ml-2">
+              <span class="font-extrabold text-white text-xs tabular-nums">${pct}%</span>
+              <span class="block text-[10px] text-slate-400 tabular-nums">${this.formatCurrency(val)}</span>
+            </div>
+          </div>
         `;
-
-        tbody.appendChild(tr);
-      });
-
-      if (window.lucide) lucide.createIcons();
-    }
-  } catch (err) {
-    console.error('Error al cargar bajas:', err);
-  }
-}
-
-function openBajaModal() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede tramitar bajas de activos.');
-    return;
-  }
-
-  const select = document.getElementById('baja-select-asset');
-  const dateInput = document.getElementById('baja-date-input');
-
-  if (dateInput) {
-    dateInput.value = new Date().toISOString().split('T')[0];
-  }
-
-  if (select) {
-    select.innerHTML = '<option value="">-- Seleccionar Activo --</option>';
-    const actives = allAssets.filter(a => a.document_status !== 'Dado de Baja');
-    actives.forEach(a => {
-      const opt = document.createElement('option');
-      opt.value = a.id;
-      opt.textContent = `${cleanAssetTag(a.asset_tag)} - ${a.type} (${a.serial}) - ${a.responsible_name}`;
-      select.appendChild(opt);
-    });
-  }
-
-  const modal = document.getElementById('baja-modal');
-  if (modal) modal.classList.remove('hidden');
-  if (window.lucide) lucide.createIcons();
-}
-
-function closeBajaModal() {
-  const modal = document.getElementById('baja-modal');
-  if (modal) modal.classList.add('hidden');
-}
-
-async function handleDecommissionAsset(e) {
-  e.preventDefault();
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede tramitar bajas.');
-    return;
-  }
-
-  const assetId = document.getElementById('baja-select-asset').value;
-  const bajaDate = document.getElementById('baja-date-input').value;
-  const reason = document.getElementById('baja-reason-select').value;
-  const actaFile = document.getElementById('baja-pdf-file').files[0];
-  const disposicionFile = document.getElementById('disposicion-pdf-file').files[0];
-  const btn = document.getElementById('btn-submit-baja');
-
-  if (!assetId) {
-    showToast('error', 'Selecciona el activo a dar de baja.');
-    return;
-  }
-  if (!actaFile || !disposicionFile) {
-    showToast('error', 'Es obligatorio adjuntar tanto el Acta de Baja como el Certificado de Disposición Final.');
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append('baja_date', bajaDate);
-  formData.append('reason', reason);
-  formData.append('acta_file', actaFile);
-  formData.append('disposicion_file', disposicionFile);
-
-  if (btn) btn.disabled = true;
-
-  try {
-    const res = await fetch(`/api/assets/${assetId}/baja`, {
-      method: 'POST',
-      body: formData
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al procesar la baja');
-
-    showToast('success', 'Baja tramitada con éxito y documentos archivados.');
-    closeBajaModal();
-    await loadAssets();
-    await loadBajas();
-
-  } catch (err) {
-    showToast('error', err.message);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 13. MODAL DE GESTIÓN DOCUMENTAL Y VISOR DE ACTAS EN PDF REAL
-// ------------------------------------------------------------------------------
-function openDocModal(assetId) {
-  openDocModalToTab(assetId, null);
-}
-
-function openDocModalToTab(assetId, preferredTab) {
-  activeAsset = allAssets.find(a => a.id === assetId);
-  if (!activeAsset) return;
-
-  const cleanTag = cleanAssetTag(activeAsset.asset_tag);
-  const tagEl = document.getElementById('modal-asset-tag');
-  const subEl = document.getElementById('modal-asset-sub');
-  const respEl = document.getElementById('modal-resp-name');
-  const cedEl = document.getElementById('modal-resp-cedula');
-  const notesInput = document.getElementById('modal-asset-notes-input');
-
-  if (tagEl) tagEl.textContent = `Activo: ${cleanTag} (${activeAsset.asset_tag})`;
-  if (subEl) subEl.textContent = `${activeAsset.type} • Serial: ${activeAsset.serial} ${activeAsset.imei ? '• IMEI: ' + activeAsset.imei : ''} • Sede: ${activeAsset.sede || 'Medellín'}`;
-  if (respEl) respEl.textContent = activeAsset.responsible_name;
-  if (cedEl) cedEl.textContent = activeAsset.responsible_cedula;
-
-  let userNotes = activeAsset.notes || '';
-  if (userNotes.toLowerCase().includes('sincronizado')) userNotes = '';
-  if (notesInput) notesInput.value = userNotes;
-
-  const photoImg = document.getElementById('modal-asset-photo-img');
-  const photoPlh = document.getElementById('modal-asset-photo-placeholder');
-  if (photoImg && photoPlh) {
-    if (activeAsset.photo_url) {
-      photoImg.src = activeAsset.photo_url;
-      photoImg.classList.remove('hidden');
-      photoPlh.classList.add('hidden');
-    } else {
-      photoImg.src = '';
-      photoImg.classList.add('hidden');
-      photoPlh.classList.remove('hidden');
+      }).join('');
     }
   }
 
-  const fileInput = document.getElementById('modal-pdf-file');
-  const errBox = document.getElementById('modal-error-box');
-  const reportBox = document.getElementById('validation-report-container');
-  if (fileInput) fileInput.value = '';
-  if (errBox) errBox.classList.add('hidden');
-  if (reportBox) reportBox.classList.add('hidden');
-
-  renderDocHistory(activeAsset.documents || []);
-  applyRolePermissions();
-
-  if (preferredTab) {
-    switchModalTab(preferredTab);
-  } else if (activeAsset.documents && activeAsset.documents.length > 0) {
-    switchModalTab('viewer');
-  } else {
-    switchModalTab('validate');
-  }
-
-  const modal = document.getElementById('doc-modal');
-  if (modal) modal.classList.remove('hidden');
-  if (window.lucide) lucide.createIcons();
-}
-
-function closeDocModal() {
-  const modal = document.getElementById('doc-modal');
-  if (modal) modal.classList.add('hidden');
-  const iframe = document.getElementById('pdf-iframe-viewer');
-  if (iframe) iframe.src = 'about:blank';
-  activeAsset = null;
-}
-
-function switchModalTab(tab) {
-  currentModalTab = tab;
-  const tabs = ['validate', 'viewer', 'photo', 'notes'];
-
-  tabs.forEach(t => {
-    const btn = document.getElementById(`tab-btn-${t}`);
-    const content = document.getElementById(`tab-content-${t}`);
-    if (t === tab) {
-      if (btn) btn.className = 'py-3 px-3.5 font-bold text-[#006837] border-b-2 border-[#006837] transition flex items-center space-x-1.5 cursor-pointer';
-      if (content) content.classList.remove('hidden');
-    } else {
-      if (btn) btn.className = 'py-3 px-3.5 font-medium text-slate-500 hover:text-slate-800 transition flex items-center space-x-1.5 cursor-pointer';
-      if (content) content.classList.add('hidden');
-    }
-  });
-
-  if (tab === 'viewer' && activeAsset && activeAsset.documents && activeAsset.documents.length > 0) {
-    const firstDoc = activeAsset.documents[0];
-    if (firstDoc.file_url) {
-      viewPdfInViewer(firstDoc.file_url, firstDoc.file_name);
-    }
-  }
-
-  if (window.lucide) lucide.createIcons();
-}
-
-function renderDocHistory(docs) {
-  const container = document.getElementById('modal-history-list');
-  const countEl = document.getElementById('viewer-count');
-  if (!container) return;
-  container.innerHTML = '';
-
-  if (countEl) countEl.textContent = `${docs.length} documento(s) asociado(s)`;
-
-  if (docs.length === 0) {
-    container.innerHTML = '<div class="p-3 text-center text-slate-500 bg-slate-50 rounded-xl border border-slate-200 text-xs font-semibold">No hay actas ni facturas adjuntas a este equipo aún.</div>';
-    const iframe = document.getElementById('pdf-iframe-viewer');
-    const placeholder = document.getElementById('pdf-placeholder-msg');
-    const extLink = document.getElementById('btn-open-external-pdf');
-    if (iframe) iframe.classList.add('hidden');
-    if (placeholder) placeholder.classList.remove('hidden');
-    if (extLink) extLink.classList.add('hidden');
-    return;
-  }
-
-  docs.forEach((d, idx) => {
-    const div = document.createElement('div');
-    div.className = 'p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs hover:border-[#006837] transition';
-
-    div.innerHTML = `
-      <div class="truncate pr-2">
-        <span class="font-extrabold text-[#111827] block truncate text-[11.5px]">${d.doc_type}</span>
-        <span class="text-[10px] text-slate-600 font-mono font-bold">${d.file_name} • ${d.created_at || ''}</span>
-      </div>
-      <div class="flex items-center space-x-1.5 shrink-0">
-        <span class="px-2 py-0.5 rounded text-[10px] font-extrabold ${d.validation_status === 'Aprobado'
-        ? 'bg-emerald-100 text-[#00522c] border border-emerald-300'
-        : 'bg-amber-100 text-[#78350f] border border-amber-300'
-      }">
-          ${d.validation_status}
-        </span>
-        ${d.file_url ? `
-          <button 
-            onclick="viewPdfInViewer('${d.file_url}', '${d.file_name}')" 
-            class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-[#006837] text-white hover:bg-[#00522c] transition flex items-center space-x-1 shadow-sm cursor-pointer"
-          >
-            <i data-lucide="eye" class="h-3 w-3"></i>
-            <span>Ver PDF</span>
-          </button>
-        ` : ''}
-      </div>
-    `;
-    container.appendChild(div);
-
-    if (idx === 0 && d.file_url) {
-      viewPdfInViewer(d.file_url, d.file_name);
-    }
-  });
-
-  if (window.lucide) lucide.createIcons();
-}
-
-function viewPdfInViewer(url, title) {
-  const iframe = document.getElementById('pdf-iframe-viewer');
-  const placeholder = document.getElementById('pdf-placeholder-msg');
-  const titleEl = document.getElementById('current-viewing-title');
-  const externalLink = document.getElementById('btn-open-external-pdf');
-
-  if (titleEl) titleEl.textContent = `Viendo documento: ${title}`;
-  if (iframe) {
-    iframe.src = url;
-    iframe.classList.remove('hidden');
-  }
-  if (placeholder) placeholder.classList.add('hidden');
-
-  if (externalLink) {
-    externalLink.href = url;
-    externalLink.setAttribute('download', title || 'documento.pdf');
-    externalLink.classList.remove('hidden');
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 14. SUBIDA Y VALIDACIÓN DE ACTAS CON MOTOR PYTHON
-// ------------------------------------------------------------------------------
-async function uploadAndValidatePDF() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador de Inventario puede adjuntar actas.');
-    return;
-  }
-
-  const fileInput = document.getElementById('modal-pdf-file');
-  const errorBox = document.getElementById('modal-error-box');
-  const btn = document.getElementById('btn-run-validation');
-  const btnText = document.getElementById('btn-run-validation-text');
-
-  if (!fileInput.files || fileInput.files.length === 0) {
-    if (errorBox) {
-      errorBox.textContent = 'Selecciona un archivo PDF para validar.';
-      errorBox.classList.remove('hidden');
-    }
-    return;
-  }
-
-  const file = fileInput.files[0];
-  if (!file.name.toLowerCase().endsWith('.pdf')) {
-    if (errorBox) {
-      errorBox.textContent = 'Solo se admiten documentos en formato PDF.';
-      errorBox.classList.remove('hidden');
-    }
-    return;
-  }
-
-  if (errorBox) errorBox.classList.add('hidden');
-  if (btn) btn.disabled = true;
-  if (btnText) btnText.textContent = 'Extrayendo texto y procesando validación TIC-F-001...';
-
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('doc_type', document.getElementById('modal-doc-type').value);
-
-  try {
-    const res = await fetch(`/api/assets/${activeAsset.id}/validate-doc`, {
-      method: 'POST',
-      body: formData
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al validar el documento PDF');
-
-    renderValidationReport(data);
-
-    activeAsset.document_status = data.new_status;
-    if (data.file_url) {
-      if (!activeAsset.documents) activeAsset.documents = [];
-      activeAsset.documents.unshift({
-        doc_type: document.getElementById('modal-doc-type').value,
-        file_name: file.name,
-        file_url: data.file_url,
-        validation_status: data.validation.is_valid ? 'Aprobado' : 'Observación',
-        created_at: 'Ahora'
-      });
-      renderDocHistory(activeAsset.documents);
-    }
-
-    await loadAssets();
-    showToast('success', 'Documento verificado y almacenado correctamente.', 3000);
-
-  } catch (err) {
-    if (errorBox) {
-      errorBox.textContent = err.message;
-      errorBox.classList.remove('hidden');
-    }
-  } finally {
-    if (btn) btn.disabled = false;
-    if (btnText) btnText.textContent = 'Validar Automáticamente con Motor Python';
-  }
-}
-
-function renderValidationReport(data) {
-  const container = document.getElementById('validation-report-container');
-  const val = data.validation;
-  if (!container || !val) return;
-  container.classList.remove('hidden');
-
-  const banner = document.getElementById('report-banner');
-  const title = document.getElementById('report-banner-title');
-  const summary = document.getElementById('report-banner-summary');
-  const icon = document.getElementById('report-banner-icon');
-
-  if (val.is_valid) {
-    banner.className = 'p-3.5 rounded-xl border text-xs flex items-start space-x-3 bg-emerald-50 border-emerald-200 text-[#006837]';
-    icon.innerHTML = '<i data-lucide="check-circle" class="h-4 w-4 text-[#006837]"></i>';
-    title.textContent = 'Validación Exitosa (Documento Conforme Somex)';
-    summary.textContent = `Se verificó la coincidencia formal de cédula, serial y cláusula de recepción. Estado actualizado a "${data.new_status}".`;
-  } else {
-    banner.className = 'p-3.5 rounded-xl border text-xs flex items-start space-x-3 bg-amber-50 border-amber-200 text-amber-800';
-    icon.innerHTML = '<i data-lucide="alert-triangle" class="h-4 w-4 text-amber-600"></i>';
-    title.textContent = 'Documento con Observaciones';
-    summary.textContent = `El documento presenta discrepancias en las validaciones de control. Estado asignado: "${data.new_status}".`;
-  }
-
-  const pCount = document.getElementById('report-pages-count');
-  if (pCount) pCount.textContent = `${val.total_pages} página(s) analizada(s)`;
-
-  const cd = val.checks.cedula;
-  document.getElementById('check-cedula-exp').textContent = cd.expected;
-  document.getElementById('check-cedula-found').textContent = cd.found;
-  document.getElementById('check-cedula-status').innerHTML = cd.passed
-    ? '<span class="text-[#006837] flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="check" class="h-3 w-3"></i><span>Coincide</span></span>'
-    : '<span class="text-rose-600 flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="x" class="h-3 w-3"></i><span>Difiere</span></span>';
-
-  const hw = val.checks.hardware;
-  document.getElementById('check-hw-exp').textContent = hw.expected;
-  document.getElementById('check-hw-found').textContent = hw.found;
-  document.getElementById('check-hw-status').innerHTML = hw.passed
-    ? '<span class="text-[#006837] flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="check" class="h-3 w-3"></i><span>Coincide</span></span>'
-    : '<span class="text-rose-600 flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="x" class="h-3 w-3"></i><span>No coincide</span></span>';
-
-  const dt = val.checks.date;
-  document.getElementById('check-date-found').textContent = dt.found;
-  document.getElementById('check-date-status').innerHTML = dt.passed
-    ? '<span class="text-[#006837] flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="check-circle" class="h-3 w-3"></i><span>Detectada</span></span>'
-    : '<span class="text-amber-600 flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="alert-triangle" class="h-3 w-3"></i><span>Faltante</span></span>';
-
-  const sg = val.checks.signature;
-  document.getElementById('check-sign-found').textContent = sg.found;
-  document.getElementById('check-sign-status').innerHTML = sg.passed
-    ? '<span class="text-[#006837] flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="check-circle" class="h-3 w-3"></i><span>Recibido</span></span>'
-    : '<span class="text-rose-600 flex items-center space-x-0.5 text-[10px] font-bold"><i data-lucide="x-circle" class="h-3 w-3"></i><span>Sin firma</span></span>';
-
-  if (window.lucide) lucide.createIcons();
-}
-
-// ------------------------------------------------------------------------------
-// 15. GUARDADO DE NOTAS Y OBSERVACIONES
-// ------------------------------------------------------------------------------
-async function saveAssetNotes() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede modificar notas internas.');
-    return;
-  }
-
-  if (!activeAsset) return;
-  const notesText = document.getElementById('modal-asset-notes-input').value;
-  const btn = document.getElementById('btn-save-notes');
-
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span>Guardando...</span>';
-  }
-
-  try {
-    const res = await fetch(`/api/assets/${activeAsset.id}/notes`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes: notesText })
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al guardar notas');
-
-    activeAsset.notes = notesText;
-    showToast('success', 'Observaciones guardadas exitosamente.', 3000);
-    await loadAssets();
-
-  } catch (err) {
-    showToast('error', `Error al guardar notas: ${err.message}`);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = '<i data-lucide="save" class="h-3.5 w-3.5"></i><span>Guardar Notas</span>';
-    }
-    if (window.lucide) lucide.createIcons();
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 16. REGISTRO DE NUEVO ACTIVO (CON CAMPO SEDE Y LIMPIEZA TOTAL)
-// ------------------------------------------------------------------------------
-function onNewAssetTypeChange(val) {
-  const container = document.getElementById('container-new-asset-imei');
-  const cedulaContainer = document.getElementById('container-new-asset-cedula');
-  const imeiInput = document.getElementById('new-asset-imei');
-  const isCelular = (val || '').toLowerCase().includes('celular') || (val || '').toLowerCase().includes('móvil') || (val || '').toLowerCase().includes('movil');
-
-  if (container) {
-    if (isCelular) {
-      container.classList.remove('hidden');
-      if (cedulaContainer) cedulaContainer.classList.remove('col-span-2');
-    } else {
-      container.classList.add('hidden');
-      if (cedulaContainer) cedulaContainer.classList.add('col-span-2');
-      if (imeiInput) imeiInput.value = '';
-    }
-  }
-}
-
-function openAssetModal() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede registrar nuevos activos.');
-    return;
-  }
-
-  // 1. Limpieza absoluta de todos los campos del modal + Nuevo
-  const typeSelect = document.getElementById('new-asset-type');
-  const sedeSelect = document.getElementById('new-asset-sede');
-  const tagInput = document.getElementById('new-asset-tag');
-  const serialInput = document.getElementById('new-asset-serial');
-  const imeiInput = document.getElementById('new-asset-imei');
-  const cedulaInput = document.getElementById('new-asset-resp-cedula');
-  const nameInput = document.getElementById('new-asset-resp-name');
-  const notesInput = document.getElementById('new-asset-notes');
-
-  if (typeSelect) typeSelect.selectedIndex = 0;
-  if (sedeSelect) sedeSelect.value = 'Medellín';
-  if (tagInput) tagInput.value = '';
-  if (serialInput) serialInput.value = '';
-  if (imeiInput) imeiInput.value = '';
-  if (cedulaInput) cedulaInput.value = '';
-  if (nameInput) nameInput.value = '';
-  if (notesInput) notesInput.value = '';
-
-  // 2. Estado condicional de IMEI: oculto por defecto
-  onNewAssetTypeChange(typeSelect ? typeSelect.value : '');
-
-  const modal = document.getElementById('asset-modal');
-  if (modal) modal.classList.remove('hidden');
-  if (window.lucide) lucide.createIcons();
-}
-
-function closeAssetModal() {
-  const modal = document.getElementById('asset-modal');
-  if (modal) modal.classList.add('hidden');
-}
-
-async function handleCreateAsset(e) {
-  e.preventDefault();
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador tiene permisos para crear activos.');
-    return;
-  }
-
-  const sedeSelect = document.getElementById('new-asset-sede');
-  const payload = {
-    type: document.getElementById('new-asset-type').value,
-    asset_tag: document.getElementById('new-asset-tag').value,
-    serial: document.getElementById('new-asset-serial').value,
-    imei: document.getElementById('new-asset-imei').value || null,
-    responsible_name: document.getElementById('new-asset-resp-name').value,
-    responsible_cedula: document.getElementById('new-asset-resp-cedula').value,
-    notes: document.getElementById('new-asset-notes').value || '',
-    sede: sedeSelect ? sedeSelect.value : 'Medellín'
-  };
-
-  try {
-    const res = await fetch('/api/assets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.detail || 'Error al registrar el activo');
-    }
-
-    closeAssetModal();
-    showToast('success', `Activo "${payload.asset_tag}" (${payload.type}) registrado con éxito en sede ${payload.sede}.`, 3000);
-    await loadAssets();
-    await loadCollaborators();
-
-  } catch (err) {
-    showToast('error', err.message);
-  }
-}
-
-// ------------------------------------------------------------------------------
-// 17. NOTIFICACIONES TOAST (DESAPARICIÓN ESTRICTA A 3 SEGUNDOS)
-// ------------------------------------------------------------------------------
-function showToast(type, msg, duration = 3000) {
-  const toast = document.getElementById('toast');
-  const inner = document.getElementById('toast-inner');
-  const text = document.getElementById('toast-msg');
-
-  if (!toast || !inner || !text) return;
-
-  if (toastTimer) clearTimeout(toastTimer);
-
-  text.textContent = msg;
-  inner.className = type === 'success'
-    ? 'p-3.5 rounded-xl border text-xs flex items-center justify-between bg-emerald-50 border-emerald-300 text-[#006837] font-bold shadow-xl'
-    : 'p-3.5 rounded-xl border text-xs flex items-center justify-between bg-rose-50 border-rose-300 text-rose-900 font-bold shadow-xl';
-
-  toast.classList.remove('hidden');
-  toastTimer = setTimeout(hideToast, duration);
-}
-
-function hideToast() {
-  const toast = document.getElementById('toast');
-  if (toast) toast.classList.add('hidden');
-}
-
-
-// ==============================================================================
-// 18. MÓDULO DE REPORTES Y AUDITORÍA ORGANIZACIONAL (ESTADÍSTICAS DEL REPORTE REAL)
-// ==============================================================================
-async function loadReportsModule() {
-  try {
-    const res = await fetch('/api/reports/summary');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error al obtener resumen de auditoría');
-    cachedReportData = data;
-    renderReportsSummary(data);
-  } catch (err) {
-    showToast('error', `Error al cargar reportes: ${err.message}`);
-  }
-}
-
-function renderReportsSummary(data) {
-  if (!data) return;
-
-  // 1. Tarjetas de Resumen Ejecutivo
-  const elTotal = document.getElementById('report-total');
-  const elScanned = document.getElementById('report-scanned');
-  const elScannedPct = document.getElementById('report-scanned-pct');
-  const elPending = document.getElementById('report-pending');
-  const elPendingPct = document.getElementById('report-pending-pct');
-  const elDate = document.getElementById('report-date');
-
-  if (elTotal) elTotal.textContent = data.total_assets;
-  if (elScanned) elScanned.textContent = data.scanned_assets;
-  if (elScannedPct) elScannedPct.textContent = `${data.compliance_pct}% verificado`;
-  if (elPending) elPending.textContent = data.pending_assets;
-  if (elPendingPct) {
-    const pendPct = data.total_assets > 0 ? (100 - data.compliance_pct).toFixed(1) : 0;
-    elPendingPct.textContent = `${pendPct}% pendiente`;
-  }
-  if (elDate) elDate.textContent = data.date || '21/10/2026';
-
-  // 2. Gráfico de Cumplimiento por Sede
-  const sedesContainer = document.getElementById('report-sedes-container');
-  if (sedesContainer && data.sedes) {
-    sedesContainer.innerHTML = data.sedes.map(s => {
-      return `
-        <div class="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
-          <div class="flex items-center justify-between text-xs">
-            <span class="font-extrabold text-[#111827] flex items-center space-x-1.5">
-              <span class="h-2.5 w-2.5 rounded-full bg-[#006837]"></span>
-              <span>${s.sede}</span>
-            </span>
-            <span class="font-black text-[#006837] text-sm">${s.compliance_pct}%</span>
-          </div>
-          <!-- Barra de progreso -->
-          <div class="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
-            <div class="bg-[#006837] h-2.5 rounded-full transition-all duration-500" style="width: ${s.compliance_pct}%"></div>
-          </div>
-          <div class="flex items-center justify-between text-[11px] text-slate-500 font-medium">
-            <span>✅ <strong>${s.scanned}</strong> escaneados</span>
-            <span class="${s.pending > 0 ? 'text-amber-700 font-bold' : 'text-slate-400'}">⚠️ <strong>${s.pending}</strong> pendientes</span>
-            <span>Total: <strong>${s.total}</strong></span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // 3. Distribución por Estado Operativo
-  const statusContainer = document.getElementById('report-status-container');
-  if (statusContainer && data.operational_statuses) {
-    statusContainer.innerHTML = data.operational_statuses.map(st => {
-      return `
-        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-          <div class="flex items-center space-x-2">
-            ${getOperationalStatusBadge(st.status)}
-            <span class="font-bold text-[#111827]">${st.total} equipos</span>
-          </div>
-          <div class="flex items-center space-x-3 text-[11px]">
-            <span class="text-slate-500 font-medium">${st.pct_of_total}% del total</span>
-            <span class="text-emerald-700 font-bold">(${st.scanned} verif.)</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // 4. Desglose por Tipo de Equipo (Top 20 categorías)
-  const typesContainer = document.getElementById('report-types-container');
-  if (typesContainer && data.equipment_types) {
-    typesContainer.innerHTML = data.equipment_types.map(t => {
-      return `
-        <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1 hover:border-[#006837] transition shadow-xs">
-          <div class="flex items-center justify-between text-[11.5px]">
-            <span class="font-extrabold text-[#111827] truncate">${t.type}</span>
-            <span class="font-black text-[#006837]">${t.total}</span>
-          </div>
-          <div class="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
-            <div class="bg-[#16A34A] h-1.5 rounded-full" style="width: ${t.compliance_pct}%"></div>
-          </div>
-          <div class="flex items-center justify-between text-[10px] text-slate-500">
-            <span>${t.scanned} verif.</span>
-            <span class="${t.pending > 0 ? 'text-amber-700 font-bold' : 'text-slate-400'}">${t.pending} pend.</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
-
-  // 5. Historial de Rondas
-  const historyContainer = document.getElementById('report-history-container');
-  if (historyContainer && data.history) {
-    historyContainer.innerHTML = data.history.map(h => {
-      return `
-        <div class="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2.5 shadow-sm hover:border-[#006837] transition">
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-emerald-50 text-[#006837] border border-emerald-200">${h.cycle}</span>
-            <span class="text-[10px] text-slate-400">${h.date}</span>
+  renderTransactionsList() {
+    const container = document.getElementById('transactionsContainer');
+    if (!container) return;
+
+    const txs = this.getFilteredTransactions();
+
+    if (txs.length === 0) {
+      container.innerHTML = `
+        <div class="text-center py-10 px-4 text-slate-500 space-y-3 bg-white/[0.02] rounded-2xl border border-white/5">
+          <div class="w-12 h-12 mx-auto rounded-2xl bg-white/5 flex items-center justify-center text-slate-500">
+            <i data-lucide="receipt" class="w-6 h-6"></i>
           </div>
           <div>
-            <h4 class="text-xs font-bold text-slate-900 leading-tight">${h.title}</h4>
-            <p class="text-[10.5px] text-slate-500 mt-0.5">${h.description}</p>
+            <p class="text-sm font-semibold text-slate-300">Fondo limpio y en ceros</p>
+            <p class="text-xs text-slate-500 mt-1">Aún no hay movimientos registrados para este mes.</p>
           </div>
-          <div class="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
-            <span class="font-bold text-[#006837]">${h.compliance} cumplimiento</span>
-            <a href="${h.pdf_url}" target="_blank" class="inline-flex items-center space-x-1 px-2.5 py-1 text-[10.5px] font-bold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#006837] border border-emerald-200 transition">
-              <i data-lucide="file-text" class="h-3 w-3"></i>
-              <span>Descargar PDF</span>
-            </a>
+          <div class="flex justify-center space-x-2 pt-1">
+            <button onclick="app.openTransactionModal('gasto')" class="min-h-[44px] px-4 py-2.5 rounded-xl bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold hover:bg-rose-500/30 touch-press">
+              + Registrar Gasto
+            </button>
+            <button onclick="app.openTransactionModal('ingreso')" class="min-h-[44px] px-4 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/30 touch-press">
+              + Registrar Ingreso
+            </button>
+          </div>
+        </div>
+      `;
+      if (window.lucide) lucide.createIcons();
+      return;
+    }
+
+    txs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Iconos de categorías
+    const iconByCat = {
+      'Servicios públicos': 'zap',
+      'Administración del conjunto': 'building',
+      'Mantenimiento de la moto': 'wrench',
+      'Gasolina': 'fuel',
+      'Mercado / Supermercado': 'shopping-cart',
+      'Otros': 'folder',
+      'Salario / Sueldo': 'briefcase',
+      'Negocios / Extra': 'trending-up',
+      'Otros Ingresos': 'dollar-sign'
+    };
+
+    container.innerHTML = txs.map(tx => {
+      const isExpense = tx.type === 'gasto';
+      const sign = isExpense ? '-' : '+';
+      const colorClass = isExpense ? 'text-rose-400' : 'text-emerald-400';
+      const iconName = iconByCat[tx.category] || (isExpense ? 'arrow-up-right' : 'arrow-down-left');
+      const iconBg = isExpense ? 'bg-rose-500/15 text-rose-400 border-rose-500/20' : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20';
+
+      return `
+        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/5 transition-all min-h-[58px]">
+          <div class="flex items-center space-x-3 truncate">
+            <div class="w-11 h-11 rounded-2xl ${iconBg} border flex items-center justify-center shrink-0">
+              <i data-lucide="${iconName}" class="w-5 h-5"></i>
+            </div>
+            <div class="truncate">
+              <div class="flex items-center space-x-1.5">
+                <span class="text-sm font-bold text-slate-100 truncate">${tx.description || tx.category}</span>
+              </div>
+              <div class="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                <span class="text-emerald-400/90 font-medium">${tx.category}</span>
+                <span>•</span>
+                <span>${tx.date}</span>
+                <span>•</span>
+                <span class="text-slate-300 font-semibold">${tx.paidBy}</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center space-x-2 shrink-0 ml-2">
+            <span class="text-sm sm:text-base font-black tabular-nums ${colorClass}">
+              ${sign}${this.formatCurrency(tx.amount)}
+            </span>
+            <button onclick="app.deleteTransaction('${tx.id}')" class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:text-rose-400 hover:bg-white/5 transition-colors touch-press" title="Eliminar">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
           </div>
         </div>
       `;
     }).join('');
+
+    if (window.lucide) lucide.createIcons();
   }
 
-  // 6. Listado de 53 Activos No Escaneados en el Ciclo
-  renderReportPendingTable();
+  deleteTransaction(id) {
+    if (!confirm('¿Deseas eliminar este movimiento del fondo común?')) return;
+    this.state.transactions = (this.state.transactions || []).filter(t => t.id !== id);
+    this.saveState();
+    this.renderDashboard();
+    this.renderUnifiedFund();
+    this.showToast('Movimiento eliminado del fondo');
 
-  if (window.lucide) lucide.createIcons();
-}
-
-function renderReportPendingTable(filterTerm = '') {
-  const tbody = document.getElementById('report-pending-table-body');
-  const countEl = document.getElementById('report-pending-table-count');
-  if (!tbody) return;
-
-  const pendingList = allAssets.filter(a => a.is_scanned === 0 && a.document_status !== 'Dado de Baja');
-  if (countEl) countEl.textContent = pendingList.length;
-
-  const term = (filterTerm || '').toLowerCase().trim();
-  const filtered = pendingList.filter(a => {
-    if (!term) return true;
-    return (
-      (a.asset_tag && a.asset_tag.toLowerCase().includes(term)) ||
-      (a.serial && a.serial.toLowerCase().includes(term)) ||
-      (a.sede && a.sede.toLowerCase().includes(term)) ||
-      (a.type && a.type.toLowerCase().includes(term)) ||
-      (a.operational_status && a.operational_status.toLowerCase().includes(term)) ||
-      (a.equipment_name && a.equipment_name.toLowerCase().includes(term)) ||
-      (a.notes && a.notes.toLowerCase().includes(term))
-    );
-  });
-
-  if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="7" class="py-8 text-center text-slate-500 font-medium text-xs">
-          ${term ? 'No se encontraron activos pendientes que coincidan con la búsqueda.' : '¡Excelente! No hay activos pendientes en este reporte.'}
-        </td>
-      </tr>
-    `;
-    return;
+    if (window.fetch) {
+      fetch(`/api/transactions?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+        .then(() => this.updateNeonStatus(true))
+        .catch(err => console.warn('Aviso al eliminar de Neon:', err));
+    }
   }
 
-  tbody.innerHTML = filtered.map(a => {
-    const cleanTag = cleanAssetTag(a.asset_tag);
-    const opBadge = getOperationalStatusBadge(a.operational_status);
-    const noteText = (a.notes || '').trim() || '<span class="text-slate-400 font-normal">Sin comentarios</span>';
-    return `
-      <tr class="hover:bg-amber-50/50 transition border-b border-slate-200 text-[#111827]">
-        <td class="py-2.5 px-3 font-mono font-bold text-[#006837] text-xs">${cleanTag}</td>
-        <td class="py-2.5 px-3 font-mono font-bold text-[#111827] text-xs">${a.serial}</td>
-        <td class="py-2.5 px-3 font-extrabold text-[#111827] text-xs">${a.sede}</td>
-        <td class="py-2.5 px-3 font-bold text-[#111827] text-xs">${a.type}</td>
-        <td class="py-2.5 px-3">${opBadge}</td>
-        <td class="py-2.5 px-3 font-semibold text-[#111827] text-xs">${a.equipment_name || '-'}</td>
-        <td class="py-2.5 px-3 text-xs text-[#111827] font-medium">${noteText}</td>
-      </tr>
-    `;
-  }).join('');
+  // =========================================================================
+  // MÓDULO 2: LISTA DE MERCADO EN TIEMPO REAL
+  // =========================================================================
 
-  if (window.lucide) lucide.createIcons();
-}
+  renderMarket() {
+    const list = this.state.shoppingList || [];
+    const pending = list.filter(i => !i.isPurchased);
+    const completed = list.filter(i => i.isPurchased);
 
-function filterReportPendingTable(term) {
-  renderReportPendingTable(term);
-}
+    const pendingCount = document.getElementById('pendingCount');
+    const completedCount = document.getElementById('completedCount');
+    const navBadge = document.getElementById('navMarketBadge');
+    const progressText = document.getElementById('marketProgressText');
+    const progressPercent = document.getElementById('marketProgressPercent');
+    const progressBar = document.getElementById('marketProgressBar');
 
-function downloadOctubrePdf() {
-  window.open('/api/reports/octubre-pdf', '_blank');
-}
+    if (pendingCount) pendingCount.textContent = pending.length;
+    if (completedCount) completedCount.textContent = completed.length;
 
-async function triggerReimportOctubre() {
-  if (currentUser && currentUser.role !== 'admin') {
-    showToast('error', 'Solo el Administrador puede re-importar datos oficiales.');
-    return;
+    if (navBadge) {
+      if (pending.length > 0) {
+        navBadge.textContent = pending.length;
+        navBadge.classList.remove('hidden');
+      } else {
+        navBadge.classList.add('hidden');
+      }
+    }
+
+    const total = list.length;
+    const pct = total > 0 ? Math.round((completed.length / total) * 100) : 0;
+    if (progressText) progressText.textContent = `${completed.length} de ${total} comprados`;
+    if (progressPercent) progressPercent.textContent = `${pct}%`;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+
+    // Render Pendientes
+    const pendingContainer = document.getElementById('pendingGroceryList');
+    if (pendingContainer) {
+      if (pending.length === 0) {
+        pendingContainer.innerHTML = `
+          <div class="text-center py-8 px-4 text-slate-500 bg-white/[0.02] rounded-2xl border border-white/5">
+            <i data-lucide="shopping-basket" class="w-8 h-8 mx-auto text-emerald-400 mb-2"></i>
+            <p class="text-sm font-semibold text-slate-200">Lista de compras limpia</p>
+            <p class="text-xs text-slate-400 mt-0.5">Añade los artículos que hagan falta para el hogar arriba.</p>
+          </div>
+        `;
+      } else {
+        pendingContainer.innerHTML = pending.map(item => `
+          <div class="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 hover:border-emerald-500/40 transition-all min-h-[56px]">
+            <div class="flex items-center space-x-3 truncate">
+              <!-- Touch Checkbox ampliado (min 44px) -->
+              <button onclick="app.toggleGroceryItem('${item.id}', true)" class="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 touch-press">
+                <span class="w-6 h-6 rounded-lg border-2 border-slate-500 hover:border-emerald-400 flex items-center justify-center transition-colors"></span>
+              </button>
+              <div class="truncate">
+                <span class="text-sm font-bold text-white block truncate">${item.name}</span>
+                <div class="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                  <span class="text-emerald-400 font-medium">${item.category}</span>
+                  <span>•</span>
+                  <span>Cant: <strong class="text-slate-200">${item.quantity || '1'}</strong></span>
+                  <span>•</span>
+                  <span>Por ${item.addedBy || 'Hogar'}</span>
+                </div>
+              </div>
+            </div>
+            <button onclick="app.deleteGroceryItem('${item.id}')" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-500 hover:text-rose-400 rounded-xl touch-press">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Render Comprados
+    const completedContainer = document.getElementById('completedGroceryList');
+    if (completedContainer) {
+      if (completed.length === 0) {
+        completedContainer.innerHTML = `
+          <p class="text-center py-3 text-xs text-slate-600">Ningún artículo en el carrito todavía</p>
+        `;
+      } else {
+        completedContainer.innerHTML = completed.map(item => `
+          <div class="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/5 opacity-65 hover:opacity-100 transition-opacity min-h-[48px]">
+            <div class="flex items-center space-x-3 truncate">
+              <button onclick="app.toggleGroceryItem('${item.id}', false)" class="min-w-[44px] min-h-[44px] flex items-center justify-center -ml-2 touch-press">
+                <span class="w-5 h-5 rounded-md bg-emerald-500 text-slate-950 flex items-center justify-center">
+                  <i data-lucide="check" class="w-3.5 h-3.5 stroke-[3]"></i>
+                </span>
+              </button>
+              <span class="text-xs sm:text-sm font-medium text-slate-400 line-through truncate">${item.name} (${item.quantity || '1'})</span>
+            </div>
+            <button onclick="app.deleteGroceryItem('${item.id}')" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-slate-600 hover:text-rose-400 touch-press">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        `).join('');
+      }
+    }
+
+    if (window.lucide) lucide.createIcons();
   }
-  const confirmRe = confirm('¿Desea re-sincronizar los 468 activos desde "Reporte inventario Octubre.pdf"? Esto restablecerá los registros al estado del reporte oficial.');
-  if (!confirmRe) return;
 
-  try {
-    showToast('success', 'Iniciando importación desde Reporte inventario Octubre.pdf...', 2000);
-    const res = await fetch('/api/migration/import-octubre', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Error en la importación');
-    showToast('success', data.message || 'Sincronización completada con éxito.', 3500);
-    await loadAssets();
-    await loadReportsModule();
-  } catch (err) {
-    showToast('error', `Error al re-importar: ${err.message}`);
+  selectGroceryCategory(cat) {
+    const input = document.getElementById('selectedGroceryCategory');
+    if (input) input.value = cat;
+
+    document.querySelectorAll('.grocery-cat-chip').forEach(btn => {
+      if (btn.textContent.includes(cat.split(' ')[0])) {
+        btn.className = 'grocery-cat-chip min-h-[44px] px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0 touch-press';
+      } else {
+        btn.className = 'grocery-cat-chip min-h-[44px] px-3 py-2 rounded-xl text-xs font-semibold bg-white/5 text-slate-400 hover:text-white shrink-0 touch-press';
+      }
+    });
+  }
+
+  handleAddShoppingItem(event) {
+    event.preventDefault();
+    const nameInput = document.getElementById('groceryItemInput');
+    const qtyInput = document.getElementById('groceryQuantityInput');
+    const catInput = document.getElementById('selectedGroceryCategory');
+
+    const name = nameInput ? nameInput.value.trim() : '';
+    const quantity = qtyInput ? qtyInput.value.trim() || '1' : '1';
+    const category = catInput ? catInput.value : 'Mercado / Supermercado';
+
+    if (!name) return;
+
+    const newItem = {
+      id: generateUUID(),
+      name: name,
+      category: category,
+      quantity: quantity,
+      isPurchased: false,
+      addedBy: this.state.couple.name1 || 'Gil',
+      createdAt: new Date().toISOString()
+    };
+
+    if (!this.state.shoppingList) this.state.shoppingList = [];
+    this.state.shoppingList.unshift(newItem);
+    this.saveState();
+
+    if (nameInput) nameInput.value = '';
+    this.renderMarket();
+    this.refreshSmartInsights();
+    this.showToast(`"${name}" añadido a la lista`);
+
+    if (navigator.vibrate) navigator.vibrate(20);
+
+    if (window.fetch) {
+      fetch('/api/shopping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem)
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) this.updateNeonStatus(true);
+        })
+        .catch(err => console.warn('Aviso al añadir a Neon:', err));
+    }
+  }
+
+  toggleGroceryItem(id, isPurchased) {
+    const item = (this.state.shoppingList || []).find(i => i.id === id);
+    if (!item) return;
+
+    item.isPurchased = isPurchased;
+    this.saveState();
+    this.renderMarket();
+    this.refreshSmartInsights();
+
+    if (navigator.vibrate) {
+      navigator.vibrate(25);
+    }
+
+    const remaining = this.state.shoppingList.filter(i => !i.isPurchased);
+    if (isPurchased && remaining.length === 0 && window.confetti) {
+      confetti({
+        particleCount: 50,
+        spread: 60,
+        origin: { y: 0.8 }
+      });
+      this.showToast('¡Mercado completado al 100%! 🛒✨');
+    }
+
+    if (window.fetch) {
+      fetch('/api/shopping', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id, isPurchased: isPurchased })
+      })
+        .then(() => this.updateNeonStatus(true))
+        .catch(err => console.warn('Aviso al actualizar en Neon:', err));
+    }
+  }
+
+  deleteGroceryItem(id) {
+    this.state.shoppingList = (this.state.shoppingList || []).filter(i => i.id !== id);
+    this.saveState();
+    this.renderMarket();
+    this.refreshSmartInsights();
+
+    if (window.fetch) {
+      fetch(`/api/shopping?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+        .then(() => this.updateNeonStatus(true))
+        .catch(err => console.warn('Aviso al eliminar de Neon:', err));
+    }
+  }
+
+  clearCompletedItems() {
+    const count = (this.state.shoppingList || []).filter(i => i.isPurchased).length;
+    if (count === 0) return;
+    if (!confirm(`¿Eliminar los ${count} productos ya comprados?`)) return;
+
+    this.state.shoppingList = this.state.shoppingList.filter(i => !i.isPurchased);
+    this.saveState();
+    this.renderMarket();
+    this.refreshSmartInsights();
+    this.showToast('Productos comprados limpiados');
+
+    if (window.fetch) {
+      fetch('/api/shopping?allCompleted=true', { method: 'DELETE' })
+        .then(() => this.updateNeonStatus(true))
+        .catch(err => console.warn('Aviso al limpiar de Neon:', err));
+    }
+  }
+
+  uncheckAllItems() {
+    (this.state.shoppingList || []).forEach(i => i.isPurchased = false);
+    this.saveState();
+    this.renderMarket();
+    this.showToast('Todos los productos marcados como pendientes');
+
+    if (window.fetch) {
+      fetch('/api/shopping?uncheckAll=true', { method: 'PATCH' })
+        .then(() => this.updateNeonStatus(true))
+        .catch(err => console.warn('Aviso al desmarcar en Neon:', err));
+    }
+  }
+
+  // =========================================================================
+  // MÓDULO 3: SMART INSIGHTS & RECOMENDACIONES (PRESUPUESTO UNIFICADO)
+  // =========================================================================
+
+  refreshSmartInsights() {
+    const { year, month } = this.state.selectedMonth;
+    const c = this.state.couple;
+    const targetGoal = Number(c.monthlySavingsGoal) || 0;
+
+    const monthTxs = (this.state.transactions || []).filter(tx => {
+      if (!tx.date) return false;
+      const d = new Date(tx.date + 'T00:00:00');
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+    const catMap = {};
+
+    monthTxs.forEach(t => {
+      const amt = Number(t.amount) || 0;
+      if (t.type === 'ingreso') {
+        totalIncome += amt;
+      } else {
+        totalExpense += amt;
+        catMap[t.category] = (catMap[t.category] || 0) + amt;
+      }
+    });
+
+    const net = totalIncome - totalExpense;
+    const savingsRate = totalIncome > 0 ? Math.round((net / totalIncome) * 100) : 0;
+    const pendingMarketCount = (this.state.shoppingList || []).filter(i => !i.isPurchased).length;
+
+    const insights = [];
+
+    // Si todo está en ceros al inicio
+    if (totalIncome === 0 && totalExpense === 0) {
+      insights.push({
+        badge: 'Inicio Limpio',
+        icon: 'sparkles',
+        color: 'emerald',
+        text: `👋 ¡Bienvenidos Gil & Ale! El presupuesto familiar está limpio e iniciado en ceros. Registren sus primeros ingresos y gastos para ver el análisis en tiempo real.`
+      });
+    } else {
+      // 1. Meta o balance de ahorro
+      if (targetGoal > 0 && net >= targetGoal) {
+        insights.push({
+          badge: 'Meta Superada',
+          icon: 'trophy',
+          color: 'emerald',
+          text: `🏆 ¡Meta de ahorro superada! Han acumulado ${this.formatCurrency(net)} en el fondo unificado este mes.`
+        });
+      } else if (net > 0) {
+        insights.push({
+          badge: 'Fondo Positivo',
+          icon: 'check-circle-2',
+          color: 'emerald',
+          text: `✨ Superávit familiar: El fondo unificado tiene un saldo a favor de ${this.formatCurrency(net)} (${savingsRate}% de ahorro).`
+        });
+      } else if (net < 0) {
+        insights.push({
+          badge: 'Alerta Déficit',
+          icon: 'alert-triangle',
+          color: 'rose',
+          text: `⚠️ Atención: Los gastos superan los ingresos familiares en ${this.formatCurrency(Math.abs(net))}.`
+        });
+      }
+
+      // 2. Concentración por categoría específica (Servicios, Moto, Gasolina, Administración, Mercado)
+      let topCat = null;
+      let topCatAmt = 0;
+      Object.keys(catMap).forEach(cat => {
+        if (catMap[cat] > topCatAmt) {
+          topCatAmt = catMap[cat];
+          topCat = cat;
+        }
+      });
+
+      if (topCat && totalExpense > 0) {
+        const pct = Math.round((topCatAmt / totalExpense) * 100);
+        insights.push({
+          badge: 'Gasto Principal',
+          icon: 'pie-chart',
+          color: 'amber',
+          text: `📊 "${topCat}" representa el ${pct}% de los gastos del hogar este mes (${this.formatCurrency(topCatAmt)}).`
+        });
+      }
+    }
+
+    // 3. Recordatorio de Supermercado
+    if (pendingMarketCount > 0) {
+      insights.push({
+        badge: 'Mercado del Hogar',
+        icon: 'shopping-cart',
+        color: 'emerald',
+        text: `🛒 Tienen ${pendingMarketCount} artículo${pendingMarketCount > 1 ? 's' : ''} pendiente${pendingMarketCount > 1 ? 's' : ''} en la lista de compras del hogar.`
+      });
+    }
+
+    this.insightsList = insights;
+    this.displayActiveInsight();
+  }
+
+  displayActiveInsight() {
+    if (this.insightsList.length === 0) return;
+    if (this.currentInsightIndex >= this.insightsList.length) {
+      this.currentInsightIndex = 0;
+    }
+
+    const cur = this.insightsList[this.currentInsightIndex];
+    const badgeEl = document.getElementById('insightBadge');
+    const msgEl = document.getElementById('insightMessage');
+    const iconBox = document.getElementById('insightIconBox');
+
+    if (badgeEl) badgeEl.textContent = cur.badge;
+    if (msgEl) msgEl.textContent = cur.text;
+    if (iconBox) {
+      iconBox.innerHTML = `<i data-lucide="${cur.icon}" class="w-4 h-4"></i>`;
+    }
+
+    if (window.lucide) lucide.createIcons();
+  }
+
+  cycleNextInsight() {
+    if (this.insightsList.length <= 1) return;
+    this.currentInsightIndex = (this.currentInsightIndex + 1) % this.insightsList.length;
+    this.displayActiveInsight();
+  }
+
+  // =========================================================================
+  // MÓDULO 4: FONDO COMÚN & METAS DE AHORRO DEL HOGAR
+  // =========================================================================
+
+  renderUnifiedFund() {
+    const { year, month } = this.state.selectedMonth;
+    const c = this.state.couple;
+    const targetGoal = Number(c.monthlySavingsGoal) || 0;
+
+    const monthTxs = (this.state.transactions || []).filter(tx => {
+      if (!tx.date) return false;
+      const d = new Date(tx.date + 'T00:00:00');
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+    let incPerson1 = 0;
+    let incPerson2 = 0;
+
+    monthTxs.forEach(tx => {
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'ingreso') {
+        totalIncome += amt;
+        if (tx.paidBy === c.name1) incPerson1 += amt;
+        else if (tx.paidBy === c.name2) incPerson2 += amt;
+        else {
+          incPerson1 += amt * 0.5;
+          incPerson2 += amt * 0.5;
+        }
+      } else {
+        totalExpense += amt;
+      }
+    });
+
+    const netSaved = totalIncome - totalExpense;
+    const targetPercent = targetGoal > 0 ? Math.min(100, Math.max(0, Math.round((netSaved / targetGoal) * 100))) : (netSaved > 0 ? 100 : 0);
+    const remainingToTarget = Math.max(0, targetGoal - netSaved);
+
+    // Actualiza UI
+    const savedAmountEl = document.getElementById('fundMonthlySavedAmount');
+    const targetAmountEl = document.getElementById('fundMonthlyTargetAmount');
+    const progressBarEl = document.getElementById('fundTargetProgressBar');
+    const percentTextEl = document.getElementById('fundTargetPercentText');
+    const remainingTextEl = document.getElementById('fundTargetRemainingText');
+
+    if (savedAmountEl) savedAmountEl.textContent = this.formatCurrency(netSaved);
+    if (targetAmountEl) targetAmountEl.textContent = targetGoal > 0 ? this.formatCurrency(targetGoal) : 'Sin meta fijada';
+    if (progressBarEl) progressBarEl.style.width = `${targetPercent}%`;
+    if (percentTextEl) {
+      percentTextEl.textContent = targetGoal > 0 ? `${targetPercent}% de la meta` : (netSaved > 0 ? 'Fondo con saldo positivo' : 'Inicia en ceros');
+    }
+    if (remainingTextEl) {
+      if (targetGoal > 0) {
+        if (netSaved >= targetGoal) {
+          remainingTextEl.textContent = '🎉 ¡Objetivo superado!';
+          remainingTextEl.className = 'text-emerald-400 font-bold';
+        } else {
+          remainingTextEl.textContent = `Faltan ${this.formatCurrency(remainingToTarget)}`;
+          remainingTextEl.className = 'text-slate-400';
+        }
+      } else {
+        remainingTextEl.textContent = 'Define tu meta en Ajustes';
+        remainingTextEl.className = 'text-slate-500';
+      }
+    }
+
+    // Aportes de Gil & Ale a ingresos (informativo)
+    const name1El = document.getElementById('fundPerson1Name');
+    const name2El = document.getElementById('fundPerson2Name');
+    const amt1El = document.getElementById('fundPerson1Amount');
+    const amt2El = document.getElementById('fundPerson2Amount');
+    const pct1El = document.getElementById('fundPerson1Percent');
+    const pct2El = document.getElementById('fundPerson2Percent');
+
+    const totalIncRecorded = incPerson1 + incPerson2;
+    const pct1 = totalIncRecorded > 0 ? Math.round((incPerson1 / totalIncRecorded) * 100) : 0;
+    const pct2 = totalIncRecorded > 0 ? Math.round((incPerson2 / totalIncRecorded) * 100) : 0;
+
+    if (name1El) name1El.textContent = c.name1 || 'Gil';
+    if (name2El) name2El.textContent = c.name2 || 'Ale';
+    if (amt1El) amt1El.textContent = this.formatCurrency(incPerson1);
+    if (amt2El) amt2El.textContent = this.formatCurrency(incPerson2);
+    if (pct1El) pct1El.textContent = `${pct1}% del fondo`;
+    if (pct2El) pct2El.textContent = `${pct2}% del fondo`;
+
+    this.renderHistoricalBarChart();
+  }
+
+  renderHistoricalBarChart() {
+    const canvas = document.getElementById('historicalBarChart');
+    if (!canvas) return;
+
+    const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const labels = [];
+    const incomeData = [];
+    const expenseData = [];
+
+    const curr = new Date(this.state.selectedMonth.year, this.state.selectedMonth.month, 1);
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(curr.getFullYear(), curr.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      labels.push(`${monthNamesShort[m]}`);
+
+      let inc = 0;
+      let exp = 0;
+      (this.state.transactions || []).forEach(t => {
+        if (!t.date) return;
+        const td = new Date(t.date + 'T00:00:00');
+        if (td.getFullYear() === y && td.getMonth() === m) {
+          if (t.type === 'ingreso') inc += Number(t.amount) || 0;
+          else exp += Number(t.amount) || 0;
+        }
+      });
+
+      incomeData.push(inc);
+      expenseData.push(exp);
+    }
+
+    if (this.historyChartInstance) {
+      this.historyChartInstance.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    this.historyChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Ingresos',
+            data: incomeData,
+            backgroundColor: 'rgba(16, 185, 129, 0.85)',
+            borderRadius: 6
+          },
+          {
+            label: 'Gastos',
+            data: expenseData,
+            backgroundColor: 'rgba(244, 63, 94, 0.85)',
+            borderRadius: 6
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#94a3b8', font: { size: 11 } }
+          },
+          tooltip: {
+            backgroundColor: '#0f172a',
+            callbacks: {
+              label: (item) => ` ${item.dataset.label}: ${this.formatCurrency(item.raw)}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: '#94a3b8' }
+          },
+          y: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: {
+              color: '#94a3b8',
+              callback: (val) => '$' + (val / 1000) + 'k'
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // =========================================================================
+  // MODAL DE REGISTRO RÁPIDO EN EL FONDO COMÚN & ESCÁNER DE FACTURAS ÍSIMO
+  // =========================================================================
+
+  handleUrlShortcuts() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get('action');
+      const tab = params.get('tab');
+
+      if (action === 'new_expense') {
+        setTimeout(() => this.openTransactionModal('gasto'), 350);
+      } else if (action === 'new_income') {
+        setTimeout(() => this.openTransactionModal('ingreso'), 350);
+      } else if (tab === 'market') {
+        this.switchTab('market');
+      } else if (tab === 'unified') {
+        this.switchTab('unified');
+      }
+    } catch (e) {
+      console.warn('Atajos de URL no disponibles:', e);
+    }
+  }
+
+  resetReceiptScannerUI() {
+    const statusBox = document.getElementById('receiptScanningStatus');
+    const alertBox = document.getElementById('receiptBlurryAlert');
+    const successBox = document.getElementById('receiptSuccessChip');
+    const fileInput = document.getElementById('receiptFileInput');
+    if (statusBox) statusBox.classList.add('hidden');
+    if (alertBox) alertBox.classList.add('hidden');
+    if (successBox) successBox.classList.add('hidden');
+    if (fileInput) fileInput.value = '';
+  }
+
+  triggerReceiptScan() {
+    const fileInput = document.getElementById('receiptFileInput');
+    if (fileInput) {
+      fileInput.value = '';
+      fileInput.click();
+    }
+  }
+
+  focusManualAmount() {
+    const alertBox = document.getElementById('receiptBlurryAlert');
+    if (alertBox) alertBox.classList.add('hidden');
+    const amtInput = document.getElementById('txAmountInput');
+    if (amtInput) {
+      setTimeout(() => {
+        amtInput.focus();
+        amtInput.select();
+      }, 100);
+    }
+  }
+
+  selectCategoryByName(catName) {
+    const hiddenInput = document.getElementById('txSelectedCategory');
+    if (hiddenInput) hiddenInput.value = catName;
+
+    document.querySelectorAll('.tx-cat-card').forEach(b => {
+      const label = b.querySelector('span')?.textContent?.trim();
+      if (label === catName) {
+        b.className = 'tx-cat-card min-h-[64px] p-3 rounded-2xl border border-emerald-500/60 bg-emerald-500/20 text-white flex flex-col items-center justify-center text-center touch-press transition-all';
+      } else {
+        b.className = 'tx-cat-card min-h-[64px] p-3 rounded-2xl border border-white/10 bg-slate-900/80 text-slate-300 flex flex-col items-center justify-center text-center touch-press hover:bg-white/10 transition-all';
+      }
+    });
+  }
+
+  // =========================================================================
+  // MÓDULO 4: ESCÁNER MULTI-SUPERMERCADO (D1, ÍSIMO, OLÍMPICA) & FLUJO MÓVIL
+  // =========================================================================
+
+  triggerDirectReceiptScan() {
+    const input = document.getElementById('directReceiptInput');
+    if (input) {
+      input.value = '';
+      input.click();
+    } else {
+      this.triggerReceiptScan();
+    }
+  }
+
+  async handleDirectReceiptFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const overlay = document.getElementById('directScanOverlay');
+    const fallbackSheet = document.getElementById('blurryFallbackSheet');
+    const blurryMsg = document.getElementById('blurrySheetMsg');
+
+    if (overlay) overlay.classList.remove('hidden');
+    if (fallbackSheet) fallbackSheet.classList.add('hidden');
+
+    try {
+      const activePayer = (this.state.couple && this.state.couple.name1) ? this.state.couple.name1 : 'Gil';
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('auto_save', 'true');
+      formData.append('paid_by', activePayer);
+      formData.append('category', 'Mercado / Supermercado');
+
+      const res = await fetch('/api/scan-receipt', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (overlay) overlay.classList.add('hidden');
+
+      if (data && data.success && data.amount && data.auto_saved) {
+        // Gasto guardado automáticamente en Neon PostgreSQL
+        const savedTx = {
+          id: (data.transaction && data.transaction.id) ? data.transaction.id : generateUUID(),
+          type: 'gasto',
+          amount: Number(data.amount),
+          category: data.category || 'Mercado / Supermercado',
+          description: data.description || `Compra ${data.vendor || 'Supermercado'}`,
+          date: (data.transaction && data.transaction.date) ? data.transaction.date : new Date().toISOString().split('T')[0],
+          paidBy: (data.transaction && data.transaction.paid_by) ? data.transaction.paid_by : activePayer,
+          vendor: data.vendor || 'Supermercado',
+          createdAt: new Date().toISOString()
+        };
+
+        if (!this.state.transactions) this.state.transactions = [];
+        this.state.transactions = this.state.transactions.filter(t => t.id !== savedTx.id);
+        this.state.transactions.unshift(savedTx);
+        this.saveState();
+        this.renderDashboard();
+        this.renderUnifiedFund();
+        this.updateNeonStatus(true);
+
+        // Feedback táctil y visual celebratorio
+        if (typeof confetti === 'function') {
+          confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 } });
+        }
+        if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+
+        const formatted = Number(data.amount).toLocaleString('es-CO');
+        this.showToast(`🎉 ¡${savedTx.description} guardada! $${formatted} COP en Mercado`);
+
+      } else {
+        // Foto borrosa o no concluyente: Activar respaldo móvil sin bloquear ni guardar datos falsos
+        if (fallbackSheet) {
+          if (blurryMsg && data.message) {
+            blurryMsg.textContent = data.message;
+          }
+          fallbackSheet.classList.remove('hidden');
+        }
+        if (navigator.vibrate) navigator.vibrate(100);
+      }
+
+    } catch (err) {
+      console.warn('Error al procesar factura:', err);
+      if (overlay) overlay.classList.add('hidden');
+      if (fallbackSheet) {
+        if (blurryMsg) {
+          blurryMsg.textContent = 'No se pudo comunicar con el escáner. Escribe el valor manualmente en 1 toque.';
+        }
+        fallbackSheet.classList.remove('hidden');
+      }
+    }
+  }
+
+  retryDirectReceiptScan() {
+    this.closeBlurryFallbackSheet();
+    setTimeout(() => this.triggerDirectReceiptScan(), 100);
+  }
+
+  closeBlurryFallbackSheet() {
+    const sheet = document.getElementById('blurryFallbackSheet');
+    if (sheet) sheet.classList.add('hidden');
+  }
+
+  openQuickManualAmount(vendor = 'Supermercado') {
+    this.closeBlurryFallbackSheet();
+    this.openTransactionModal('gasto');
+    this.selectCategoryByName('Mercado / Supermercado');
+    const desc = document.getElementById('txDescriptionInput');
+    if (desc && !desc.value) {
+      desc.value = `Compra ${vendor}`;
+    }
+    const amtInput = document.getElementById('txAmountInput');
+    if (amtInput) {
+      setTimeout(() => amtInput.focus(), 150);
+    }
+  }
+
+  async handleReceiptFileSelected(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const statusBox = document.getElementById('receiptScanningStatus');
+    const alertBox = document.getElementById('receiptBlurryAlert');
+    const successBox = document.getElementById('receiptSuccessChip');
+    const successMsg = document.getElementById('receiptSuccessMsg');
+    const blurryMsg = document.getElementById('receiptBlurryMsg');
+
+    if (statusBox) statusBox.classList.remove('hidden');
+    if (alertBox) alertBox.classList.add('hidden');
+    if (successBox) successBox.classList.add('hidden');
+
+    try {
+      const activePayer = (this.state.couple && this.state.couple.name1) ? this.state.couple.name1 : 'Gil';
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('auto_save', 'false'); // En el modal permitimos confirmar o editar
+      formData.append('paid_by', activePayer);
+      formData.append('category', 'Mercado / Supermercado');
+
+      const res = await fetch('/api/scan-receipt', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (statusBox) statusBox.classList.add('hidden');
+
+      if (data && data.success && data.amount) {
+        // Escaneo exitoso y nítido (D1, Ísimo, Olímpica, etc.)
+        const amtInput = document.getElementById('txAmountInput');
+        if (amtInput) {
+          amtInput.value = data.amount;
+        }
+
+        // Seleccionar categoría de mercado
+        this.selectCategoryByName('Mercado / Supermercado');
+
+        // Prellenar detalle con comercio detectado
+        const descInput = document.getElementById('txDescriptionInput');
+        if (descInput) {
+          descInput.value = data.description || `Compra ${data.vendor || 'Supermercado'}`;
+        }
+
+        // Mostrar chip de confirmación
+        if (successBox) {
+          if (successMsg) {
+            successMsg.textContent = `✓ ${data.vendor || 'Supermercado'}: $${Number(data.amount).toLocaleString('es-CO')} COP`;
+          }
+          successBox.classList.remove('hidden');
+        }
+
+        if (window.lucide) lucide.createIcons();
+        if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+
+      } else {
+        // Foto borrosa o dudosa: Activar flujo de respaldo
+        if (alertBox) {
+          if (blurryMsg && data.message) {
+            blurryMsg.textContent = data.message;
+          }
+          alertBox.classList.remove('hidden');
+        }
+        const amtInput = document.getElementById('txAmountInput');
+        if (amtInput) {
+          setTimeout(() => amtInput.focus(), 150);
+        }
+        if (window.lucide) lucide.createIcons();
+        if (navigator.vibrate) navigator.vibrate(100);
+      }
+
+    } catch (err) {
+      console.warn('Error al procesar tirilla:', err);
+      if (statusBox) statusBox.classList.add('hidden');
+      if (alertBox) {
+        if (blurryMsg) {
+          blurryMsg.textContent = 'No se pudo conectar con el escáner de recibos. Escribe el total manualmente.';
+        }
+        alertBox.classList.remove('hidden');
+      }
+      this.focusManualAmount();
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+
+  openTransactionModal(type = 'gasto') {
+    this.modalTxType = type;
+    const modal = document.getElementById('txModal');
+    if (!modal) return;
+
+    this.setModalTxType(type);
+    this.renderModalCategories();
+    this.resetReceiptScannerUI();
+
+    const amtInput = document.getElementById('txAmountInput');
+    if (amtInput) {
+      amtInput.value = '';
+      setTimeout(() => amtInput.focus(), 150);
+    }
+
+    modal.classList.remove('hidden');
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
+  closeTransactionModal() {
+    const modal = document.getElementById('txModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  setModalTxType(type) {
+    this.modalTxType = type;
+    const expBtn = document.getElementById('txTypeExpenseBtn');
+    const incBtn = document.getElementById('txTypeIncomeBtn');
+    const submitBtn = document.getElementById('txSubmitBtn');
+    const modalTitle = document.getElementById('txModalTitle');
+
+    if (type === 'gasto') {
+      if (expBtn) expBtn.className = 'flex-1 min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-500 text-white shadow-md shadow-rose-500/25 transition-all touch-press flex items-center justify-center space-x-1.5';
+      if (incBtn) incBtn.className = 'flex-1 min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition-all touch-press flex items-center justify-center space-x-1.5';
+      if (modalTitle) modalTitle.textContent = 'Registrar Gasto del Hogar';
+      if (submitBtn) {
+        submitBtn.className = 'w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-400 hover:to-rose-500 text-white font-extrabold text-sm touch-press shadow-lg shadow-rose-500/25 flex items-center justify-center space-x-2';
+        submitBtn.innerHTML = '<i data-lucide="minus-circle" class="w-4 h-4"></i><span>Guardar Gasto</span>';
+      }
+    } else {
+      if (incBtn) incBtn.className = 'flex-1 min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/25 transition-all touch-press flex items-center justify-center space-x-1.5';
+      if (expBtn) expBtn.className = 'flex-1 min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white transition-all touch-press flex items-center justify-center space-x-1.5';
+      if (modalTitle) modalTitle.textContent = 'Registrar Ingreso al Fondo';
+      if (submitBtn) {
+        submitBtn.className = 'w-full min-h-[48px] py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-sm touch-press shadow-lg shadow-emerald-500/25 flex items-center justify-center space-x-2';
+        submitBtn.innerHTML = '<i data-lucide="plus-circle" class="w-4 h-4"></i><span>Guardar Ingreso</span>';
+      }
+    }
+
+    this.renderModalCategories();
+
+    const scannerContainer = document.getElementById('receiptScannerContainer');
+    if (scannerContainer) {
+      if (type === 'gasto') {
+        scannerContainer.classList.remove('hidden');
+      } else {
+        scannerContainer.classList.add('hidden');
+      }
+    }
+
+    if (window.lucide) lucide.createIcons();
+  }
+
+  renderModalCategories() {
+    const grid = document.getElementById('txCategoryGrid');
+    const hiddenInput = document.getElementById('txSelectedCategory');
+    if (!grid) return;
+
+    const list = CATEGORIES[this.modalTxType] || [];
+    const defaultCat = list[0]?.name || '';
+    if (hiddenInput) hiddenInput.value = defaultCat;
+
+    grid.innerHTML = list.map((cat, idx) => `
+      <button type="button" onclick="app.selectModalCategory('${cat.name}', this)" 
+              class="tx-cat-card min-h-[64px] p-3 rounded-2xl border ${idx === 0 ? 'border-emerald-500/60 bg-emerald-500/20 text-white' : 'border-white/10 bg-slate-900/80 text-slate-300'} flex flex-col items-center justify-center text-center touch-press hover:bg-white/10 transition-all">
+        <i data-lucide="${cat.icon}" class="w-6 h-6 mb-1.5" style="color: ${cat.color}"></i>
+        <span class="text-xs font-bold leading-tight line-clamp-1">${cat.name}</span>
+      </button>
+    `).join('');
+
+    if (window.lucide) lucide.createIcons();
+  }
+
+  selectModalCategory(catName, btnElement) {
+    const hiddenInput = document.getElementById('txSelectedCategory');
+    if (hiddenInput) hiddenInput.value = catName;
+
+    document.querySelectorAll('.tx-cat-card').forEach(b => {
+      b.className = 'tx-cat-card min-h-[64px] p-3 rounded-2xl border border-white/10 bg-slate-900/80 text-slate-300 flex flex-col items-center justify-center text-center touch-press hover:bg-white/10 transition-all';
+    });
+
+    if (btnElement) {
+      btnElement.className = 'tx-cat-card min-h-[64px] p-3 rounded-2xl border border-emerald-500/60 bg-emerald-500/20 text-white flex flex-col items-center justify-center text-center touch-press transition-all';
+    }
+
+    if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  setTxPaidBy(option) {
+    const c = this.state.couple;
+    const hidden = document.getElementById('txSelectedPaidBy');
+    const b1 = document.getElementById('paidByBtn-member1');
+    const b2 = document.getElementById('paidByBtn-member2');
+    const bShared = document.getElementById('paidByBtn-shared');
+
+    let selectedValue = c.name1 || 'Gil';
+    if (option === 'member2') selectedValue = c.name2 || 'Ale';
+    if (option === 'shared') selectedValue = 'Ambos';
+
+    if (hidden) hidden.value = selectedValue;
+
+    [b1, b2, bShared].forEach(b => {
+      if (b) b.className = 'min-h-[44px] py-2.5 px-3 rounded-xl border border-white/10 bg-slate-900 text-slate-300 text-xs font-bold flex items-center justify-center touch-press';
+    });
+
+    if (option === 'member1' && b1) {
+      b1.className = 'min-h-[44px] py-2.5 px-3 rounded-xl border border-emerald-500/50 bg-emerald-500/20 text-emerald-300 text-xs font-bold flex items-center justify-center touch-press';
+    } else if (option === 'member2' && b2) {
+      b2.className = 'min-h-[44px] py-2.5 px-3 rounded-xl border border-violet-500/50 bg-violet-500/20 text-violet-300 text-xs font-bold flex items-center justify-center touch-press';
+    } else if (option === 'shared' && bShared) {
+      bShared.className = 'min-h-[44px] py-2.5 px-3 rounded-xl border border-indigo-500/50 bg-indigo-500/20 text-indigo-300 text-xs font-bold flex items-center justify-center touch-press';
+    }
+
+    if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  addAmount(val) {
+    const input = document.getElementById('txAmountInput');
+    if (!input) return;
+    const current = parseFloat(input.value) || 0;
+    input.value = current + val;
+    if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  clearAmount() {
+    const input = document.getElementById('txAmountInput');
+    if (input) input.value = '';
+    if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  handleSaveTransaction(event) {
+    event.preventDefault();
+    const amountInput = document.getElementById('txAmountInput');
+    const catInput = document.getElementById('txSelectedCategory');
+    const paidByInput = document.getElementById('txSelectedPaidBy');
+    const dateInput = document.getElementById('txDateInput');
+    const descInput = document.getElementById('txDescriptionInput');
+
+    const amount = parseFloat(amountInput ? amountInput.value : 0);
+    if (!amount || amount <= 0) {
+      alert('Ingresa un monto válido para el fondo');
+      return;
+    }
+
+    const newTx = {
+      id: generateUUID(),
+      type: this.modalTxType,
+      amount: amount,
+      category: catInput ? catInput.value : 'Otros',
+      description: descInput ? descInput.value.trim() : '',
+      date: dateInput ? dateInput.value : new Date().toISOString().split('T')[0],
+      paidBy: paidByInput ? paidByInput.value : (this.state.couple.name1 || 'Gil'),
+      createdAt: new Date().toISOString()
+    };
+
+    if (!this.state.transactions) this.state.transactions = [];
+    this.state.transactions.unshift(newTx);
+    this.saveState();
+    this.closeTransactionModal();
+    this.renderDashboard();
+    this.renderUnifiedFund();
+    this.showToast(`${this.modalTxType === 'gasto' ? 'Gasto' : 'Ingreso'} guardado en el Fondo Común`);
+
+    if (navigator.vibrate) navigator.vibrate(25);
+
+    if (window.fetch) {
+      fetch('/api/transactions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newTx)
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.success) this.updateNeonStatus(true);
+        })
+        .catch(err => console.warn('Aviso al guardar en Neon:', err));
+    }
+  }
+
+  // =========================================================================
+  // MÓDULO 5: AJUSTES, WHITELIST & NEON CLOUD (POSTGRESQL)
+  // =========================================================================
+
+  applySettingsToUI() {
+    const c = this.state.couple;
+    const n1 = document.getElementById('settingsName1');
+    const n2 = document.getElementById('settingsName2');
+    const goal = document.getElementById('settingsSavingsGoal');
+    const curr = document.getElementById('settingsCurrency');
+    const em1 = document.getElementById('settingsEmail1');
+    const em2 = document.getElementById('settingsEmail2');
+
+    if (n1) n1.value = c.name1 || 'Gil';
+    if (n2) n2.value = c.name2 || 'Ale';
+    if (goal) goal.value = c.monthlySavingsGoal || 0;
+    if (curr) curr.value = c.currency || 'COP';
+    if (em1) em1.value = c.email1 || '';
+    if (em2) em2.value = c.email2 || '';
+
+    this.updateDatabaseBadge();
+  }
+
+  saveCoupleProfileSettings() {
+    const n1 = document.getElementById('settingsName1')?.value.trim() || 'Gil';
+    const n2 = document.getElementById('settingsName2')?.value.trim() || 'Ale';
+    const goal = parseFloat(document.getElementById('settingsSavingsGoal')?.value) || 0;
+    const curr = document.getElementById('settingsCurrency')?.value || 'COP';
+
+    this.state.couple.name1 = n1;
+    this.state.couple.name2 = n2;
+    this.state.couple.monthlySavingsGoal = goal;
+    this.state.couple.currency = curr;
+
+    const symbols = { COP: '$', USD: '$', EUR: '€', MXN: '$', ARS: '$', CLP: '$' };
+    this.state.couple.symbol = symbols[curr] || '$';
+
+    this.saveState();
+    this.updateHeaderUI();
+    this.renderDashboard();
+    this.renderUnifiedFund();
+    this.showToast('Configuración del hogar Gil & Ale actualizada');
+
+    if (window.fetch) {
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          monthlySavingsGoal: goal,
+          currency: curr,
+          symbol: this.state.couple.symbol,
+          name1: n1,
+          name2: n2
+        })
+      }).then(() => this.updateNeonStatus(true)).catch(err => console.warn('Aviso guardando ajustes en Neon:', err));
+    }
+  }
+
+  saveWhitelistSettings() {
+    const e1 = document.getElementById('settingsEmail1')?.value.trim();
+    const e2 = document.getElementById('settingsEmail2')?.value.trim();
+
+    if (!e1 || !e2) {
+      alert('Debes ingresar los dos correos autorizados para Gil y Ale.');
+      return;
+    }
+
+    this.state.couple.email1 = e1;
+    this.state.couple.email2 = e2;
+    this.saveState();
+    this.showToast('Whitelist de Gil y Ale guardada');
+
+    if (window.fetch) {
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email1: e1, email2: e2 })
+      }).then(() => this.updateNeonStatus(true)).catch(err => console.warn('Aviso guardando whitelist en Neon:', err));
+    }
+  }
+
+  // Comprobar estado de conexión con Neon Serverless
+  async checkNeonStatus() {
+    const apiStatusText = document.getElementById('apiStatusText');
+    try {
+      const res = await fetch('/api/status');
+      if (!res.ok) throw new Error('API no respondió');
+      const data = await res.json();
+      if (data.ok) {
+        this.updateNeonStatus(true);
+        if (apiStatusText) {
+          apiStatusText.textContent = '🟢 Conectado a Neon';
+          apiStatusText.className = 'font-semibold text-emerald-400';
+        }
+      } else {
+        throw new Error(data.error || 'Error desconocido');
+      }
+    } catch (err) {
+      console.warn('Neon status check:', err);
+      this.updateNeonStatus(false);
+      if (apiStatusText) {
+        apiStatusText.textContent = '⚪ Modo Local Seguro';
+        apiStatusText.className = 'font-semibold text-slate-400';
+      }
+    }
+  }
+
+  // Sincronizar desde Neon Cloud
+  async syncFromNeon(showUserFeedback = false) {
+    if (showUserFeedback) this.showToast('Sincronizando con Neon Cloud...');
+    try {
+      const res = await fetch('/api/sync');
+      if (!res.ok) throw new Error('API no disponible');
+      const data = await res.json();
+
+      if (data.success) {
+        if (Array.isArray(data.transactions) && data.transactions.length > 0) {
+          this.state.transactions = data.transactions;
+        }
+        if (Array.isArray(data.shoppingList) && data.shoppingList.length > 0) {
+          this.state.shoppingList = data.shoppingList;
+        }
+        if (data.workspace) {
+          if (data.workspace.monthlySavingsGoal !== undefined) {
+            this.state.couple.monthlySavingsGoal = data.workspace.monthlySavingsGoal;
+          }
+          if (data.workspace.currency) {
+            this.state.couple.currency = data.workspace.currency;
+            this.state.couple.symbol = data.workspace.symbol || '$';
+          }
+        }
+
+        this.updateNeonStatus(true);
+        this.saveState();
+        this.updateHeaderUI();
+        this.renderDashboard();
+        this.renderMarket();
+        this.renderUnifiedFund();
+        this.refreshSmartInsights();
+        this.applySettingsToUI();
+
+        if (showUserFeedback) {
+          this.showToast('¡Datos sincronizados con Neon Cloud! ⚡');
+        }
+      }
+    } catch (err) {
+      console.warn('Operando en modo local (Neon offline o no configurado):', err);
+      this.updateNeonStatus(false);
+      if (showUserFeedback) {
+        this.showToast('Modo Local (Sin conexión con Neon)');
+      }
+    }
+  }
+
+  // Subir datos locales guardados en el teléfono a Neon Cloud
+  async uploadLocalDataToNeon() {
+    this.showToast('Subiendo datos locales a Neon Cloud...');
+    try {
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactions: this.state.transactions || [],
+          shoppingList: this.state.shoppingList || [],
+          couple: this.state.couple || {}
+        })
+      });
+      if (!res.ok) throw new Error('Error en el servidor');
+      const data = await res.json();
+      if (data.success) {
+        this.updateNeonStatus(true);
+        this.showToast('¡Datos locales subidos a Neon Cloud! 🎉');
+        this.syncFromNeon();
+      } else {
+        throw new Error(data.error || 'Fallo al sincronizar');
+      }
+    } catch (err) {
+      alert('No se pudo subir los datos a Neon: ' + err.message + '\nVerifica que DATABASE_URL esté configurado en Vercel.');
+    }
+  }
+
+  updateNeonStatus(isConnected) {
+    if (!this.state.neon) this.state.neon = {};
+    this.state.neon.isConnected = isConnected;
+    if (isConnected) this.state.neon.lastSyncedAt = new Date().toISOString();
+    this.saveState();
+    this.updateDatabaseBadge();
+  }
+
+  updateDatabaseBadge() {
+    const isConn = this.state.neon?.isConnected;
+    const badge = document.getElementById('neonConnectionBadge') || document.getElementById('supabaseConnectionBadge');
+    const headerSyncText = document.getElementById('syncStatusText');
+
+    if (badge) {
+      badge.textContent = isConn ? '🟢 Neon Cloud' : 'Local Seguro';
+      badge.className = isConn
+        ? 'text-[10px] px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30'
+        : 'text-[10px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-400 font-semibold';
+    }
+
+    if (headerSyncText) {
+      headerSyncText.textContent = isConn ? 'Neon Cloud' : 'Local';
+    }
+  }
+
+  // Backup & Restore
+  exportBackupData() {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(this.state, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute('href', dataStr);
+    a.setAttribute('download', `DuoControl_Gil_Ale_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    this.showToast('Copia de seguridad descargada');
+  }
+
+  importBackupData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (parsed.couple) {
+          this.state = parsed;
+          this.saveState();
+          this.init();
+          this.showToast('Copia de Gil & Ale restaurada exitosamente 🎉');
+        } else {
+          alert('El archivo JSON no tiene el formato válido de DuoControl.');
+        }
+      } catch (err) {
+        alert('Error al leer el archivo de copia: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // PWA (Progressive Web App)
+  setupPwaListeners() {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      this.deferredPrompt = e;
+      const headerBtn = document.getElementById('btnPwaInstallHeader');
+      if (headerBtn) headerBtn.classList.remove('hidden');
+      const androidSec = document.getElementById('androidInstallSection');
+      if (androidSec) androidSec.classList.remove('hidden');
+      const iosSec = document.getElementById('iosInstallSection');
+      if (iosSec) iosSec.classList.add('hidden');
+    });
+
+    window.addEventListener('appinstalled', () => {
+      console.log('[PWA] DuoControl instalada en el dispositivo de Gil y Ale');
+      this.deferredPrompt = null;
+      this.showToast('¡DuoControl instalada con éxito!');
+      const headerBtn = document.getElementById('btnPwaInstallHeader');
+      if (headerBtn) headerBtn.classList.add('hidden');
+    });
+  }
+
+  promptInstallPwa() {
+    const modal = document.getElementById('pwaInstallModal');
+    if (!modal) return;
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const isStandalone = window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+
+    if (isStandalone) {
+      this.showToast('Ya estás usando la app instalada 🎉');
+      return;
+    }
+
+    const iosSection = document.getElementById('iosInstallSection');
+    const androidSection = document.getElementById('androidInstallSection');
+
+    if (this.deferredPrompt) {
+      if (androidSection) androidSection.classList.remove('hidden');
+      if (iosSection) iosSection.classList.add('hidden');
+    } else if (isIOS) {
+      if (androidSection) androidSection.classList.add('hidden');
+      if (iosSection) iosSection.classList.remove('hidden');
+    } else {
+      if (androidSection) androidSection.classList.remove('hidden');
+      if (iosSection) iosSection.classList.add('hidden');
+    }
+
+    modal.classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+  }
+
+  executeInstallPrompt() {
+    if (this.deferredPrompt) {
+      this.deferredPrompt.prompt();
+      this.deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('Usuario aceptó instalar PWA');
+        }
+        this.deferredPrompt = null;
+        this.closeInstallModal();
+      });
+    } else {
+      alert('Para instalar en tu navegador, haz clic en el icono de instalación en la barra de direcciones o en el menú de opciones (tres puntos) > "Instalar aplicación".');
+      this.closeInstallModal();
+    }
+  }
+
+  closeInstallModal() {
+    const modal = document.getElementById('pwaInstallModal');
+    if (modal) modal.classList.add('hidden');
+  }
+
+  showToast(message) {
+    const toast = document.getElementById('toastNotification');
+    const text = document.getElementById('toastMessage');
+    if (!toast || !text) return;
+
+    text.textContent = message;
+    toast.classList.remove('hidden');
+    toast.classList.add('flex');
+
+    if (this.toastTimeout) clearTimeout(this.toastTimeout);
+    this.toastTimeout = setTimeout(() => {
+      toast.classList.add('hidden');
+      toast.classList.remove('flex');
+    }, 2800);
   }
 }
+
+// Inicializar la aplicación globalmente
+window.app = new DuoControlApp();

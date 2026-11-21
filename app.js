@@ -1176,6 +1176,125 @@ class DuoControlApp {
     });
   }
 
+  // =========================================================================
+  // MÓDULO 4: ESCÁNER MULTI-SUPERMERCADO (D1, ÍSIMO, OLÍMPICA) & FLUJO MÓVIL
+  // =========================================================================
+
+  triggerDirectReceiptScan() {
+    const input = document.getElementById('directReceiptInput');
+    if (input) {
+      input.value = '';
+      input.click();
+    } else {
+      this.triggerReceiptScan();
+    }
+  }
+
+  async handleDirectReceiptFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const overlay = document.getElementById('directScanOverlay');
+    const fallbackSheet = document.getElementById('blurryFallbackSheet');
+    const blurryMsg = document.getElementById('blurrySheetMsg');
+
+    if (overlay) overlay.classList.remove('hidden');
+    if (fallbackSheet) fallbackSheet.classList.add('hidden');
+
+    try {
+      const activePayer = (this.state.couple && this.state.couple.name1) ? this.state.couple.name1 : 'Gil';
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('auto_save', 'true');
+      formData.append('paid_by', activePayer);
+      formData.append('category', 'Mercado / Supermercado');
+
+      const res = await fetch('/api/scan-receipt', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+      if (overlay) overlay.classList.add('hidden');
+
+      if (data && data.success && data.amount && data.auto_saved) {
+        // Gasto guardado automáticamente en Neon PostgreSQL
+        const savedTx = {
+          id: (data.transaction && data.transaction.id) ? data.transaction.id : generateUUID(),
+          type: 'gasto',
+          amount: Number(data.amount),
+          category: data.category || 'Mercado / Supermercado',
+          description: data.description || `Compra ${data.vendor || 'Supermercado'}`,
+          date: (data.transaction && data.transaction.date) ? data.transaction.date : new Date().toISOString().split('T')[0],
+          paidBy: (data.transaction && data.transaction.paid_by) ? data.transaction.paid_by : activePayer,
+          vendor: data.vendor || 'Supermercado',
+          createdAt: new Date().toISOString()
+        };
+
+        if (!this.state.transactions) this.state.transactions = [];
+        this.state.transactions = this.state.transactions.filter(t => t.id !== savedTx.id);
+        this.state.transactions.unshift(savedTx);
+        this.saveState();
+        this.renderDashboard();
+        this.renderUnifiedFund();
+        this.updateNeonStatus(true);
+
+        // Feedback táctil y visual celebratorio
+        if (typeof confetti === 'function') {
+          confetti({ particleCount: 60, spread: 70, origin: { y: 0.8 } });
+        }
+        if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+
+        const formatted = Number(data.amount).toLocaleString('es-CO');
+        this.showToast(`🎉 ¡${savedTx.description} guardada! $${formatted} COP en Mercado`);
+
+      } else {
+        // Foto borrosa o no concluyente: Activar respaldo móvil sin bloquear ni guardar datos falsos
+        if (fallbackSheet) {
+          if (blurryMsg && data.message) {
+            blurryMsg.textContent = data.message;
+          }
+          fallbackSheet.classList.remove('hidden');
+        }
+        if (navigator.vibrate) navigator.vibrate(100);
+      }
+
+    } catch (err) {
+      console.warn('Error al procesar factura:', err);
+      if (overlay) overlay.classList.add('hidden');
+      if (fallbackSheet) {
+        if (blurryMsg) {
+          blurryMsg.textContent = 'No se pudo comunicar con el escáner. Escribe el valor manualmente en 1 toque.';
+        }
+        fallbackSheet.classList.remove('hidden');
+      }
+    }
+  }
+
+  retryDirectReceiptScan() {
+    this.closeBlurryFallbackSheet();
+    setTimeout(() => this.triggerDirectReceiptScan(), 100);
+  }
+
+  closeBlurryFallbackSheet() {
+    const sheet = document.getElementById('blurryFallbackSheet');
+    if (sheet) sheet.classList.add('hidden');
+  }
+
+  openQuickManualAmount(vendor = 'Supermercado') {
+    this.closeBlurryFallbackSheet();
+    this.openTransactionModal('gasto');
+    this.selectCategoryByName('Mercado / Supermercado');
+    const desc = document.getElementById('txDescriptionInput');
+    if (desc && !desc.value) {
+      desc.value = `Compra ${vendor}`;
+    }
+    const amtInput = document.getElementById('txAmountInput');
+    if (amtInput) {
+      setTimeout(() => amtInput.focus(), 150);
+    }
+  }
+
   async handleReceiptFileSelected(event) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1191,8 +1310,12 @@ class DuoControlApp {
     if (successBox) successBox.classList.add('hidden');
 
     try {
+      const activePayer = (this.state.couple && this.state.couple.name1) ? this.state.couple.name1 : 'Gil';
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('auto_save', 'false'); // En el modal permitimos confirmar o editar
+      formData.append('paid_by', activePayer);
+      formData.append('category', 'Mercado / Supermercado');
 
       const res = await fetch('/api/scan-receipt', {
         method: 'POST',
@@ -1203,7 +1326,7 @@ class DuoControlApp {
       if (statusBox) statusBox.classList.add('hidden');
 
       if (data && data.success && data.amount) {
-        // Escaneo exitoso y nítido
+        // Escaneo exitoso y nítido (D1, Ísimo, Olímpica, etc.)
         const amtInput = document.getElementById('txAmountInput');
         if (amtInput) {
           amtInput.value = data.amount;
@@ -1212,16 +1335,16 @@ class DuoControlApp {
         // Seleccionar categoría de mercado
         this.selectCategoryByName('Mercado / Supermercado');
 
-        // Prellenar detalle
+        // Prellenar detalle con comercio detectado
         const descInput = document.getElementById('txDescriptionInput');
-        if (descInput && !descInput.value) {
-          descInput.value = data.description || 'Compra Ísimo';
+        if (descInput) {
+          descInput.value = data.description || `Compra ${data.vendor || 'Supermercado'}`;
         }
 
         // Mostrar chip de confirmación
         if (successBox) {
           if (successMsg) {
-            successMsg.textContent = `✓ Total detectado: $${Number(data.amount).toLocaleString('es-CO')} COP`;
+            successMsg.textContent = `✓ ${data.vendor || 'Supermercado'}: $${Number(data.amount).toLocaleString('es-CO')} COP`;
           }
           successBox.classList.remove('hidden');
         }
@@ -1237,7 +1360,6 @@ class DuoControlApp {
           }
           alertBox.classList.remove('hidden');
         }
-        // Enfocar el campo numérico en COP para registrar al instante
         const amtInput = document.getElementById('txAmountInput');
         if (amtInput) {
           setTimeout(() => amtInput.focus(), 150);

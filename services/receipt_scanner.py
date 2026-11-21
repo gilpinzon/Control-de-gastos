@@ -1,31 +1,109 @@
 """
 ==============================================================================
-DUOCONTROL | MOTOR DE ESCANEO DE FACTURAS ÍSIMO COLOMBIA (services/receipt_scanner.py)
+DUOCONTROL | MOTOR DE ESCANEO MULTI-SUPERMERCADO COLOMBIA (services/receipt_scanner.py)
+Compatibilidad de Facturas: D1, Ísimo, Olímpica, Éxito, Ara, Carulla y Genéricos.
+
 Capacidades:
-1. Preprocesamiento de imagen: escala de grises, realce de contraste térmico y umbralización.
-2. Detección y evaluación de nitidez (Laplacian variance / Blur score) para fotos borrosas.
-3. Extracción y normalización de moneda colombiana (COP): $45.800 -> 45800 entero.
-4. Priorización estricta de líneas finales (TOTAL A PAGAR, TOTAL, NETO, EFECTIVO, TARJETA).
-5. Descarte de subtotales, IVA, ahorros, vueltas, NIT, CUFE y códigos de resolución.
-6. Manejo de respaldo ante fotos borrosas sin bloquear el flujo del usuario.
+1. Preprocesamiento térmico de imagen: escala de grises, contraste adaptativo y binarización.
+2. Evaluador de nitidez (Laplacian variance / gradientes) para fotos borrosas.
+3. Detección automática del comercio (D1, ÍSIMO, OLÍMPICA, ÉXITO, ARA, SUPERMERCADO).
+4. Extracción de total en pesos colombianos (COP): $45.800 / 45.800,00 -> 45800.
+5. Priorización estricta: TOTAL A PAGAR, NETO, VALOR TOTAL, EFECTIVO, TARJETA.
+6. Descarte estricto de subtotales, IVA, ahorros, cambio/vueltas, NITs, CUFE y resoluciones.
+7. Respaldo móvil inteligente ante fotos borrosas (sin valores falsos ni bloqueos).
 ==============================================================================
 """
 
 import io
 import re
-import math
-import struct
+import datetime
 from typing import Dict, Any, List, Optional, Tuple
 
-# Palabras clave prioritarias para el total en tirillas de Ísimo y POS colombiano
+# Comercios y patrones de identificación en Colombia
+SUPERMARKET_PATTERNS = [
+    {
+        "name": "D1",
+        "patterns": [
+            r"\bD1\b",
+            r"TIENDAS\s+D1",
+            r"KOBA\s+COLOMBIA",
+            r"KOBA",
+            r"900\.?276\.?962",
+            r"D1\s+S\.?A\.?S"
+        ]
+    },
+    {
+        "name": "Ísimo",
+        "patterns": [
+            r"ISIMO",
+            r"ÍSIMO",
+            r"TIENDAS\s+ISIMO",
+            r"TIENDAS\s+ÍSIMO",
+            r"901\.?621\.?579",
+            r"ISIMO\s+S\.?A\.?S"
+        ]
+    },
+    {
+        "name": "Olímpica",
+        "patterns": [
+            r"OLIMPICA",
+            r"OLÍMPICA",
+            r"SUPERTIENDAS\s+OLIMPICA",
+            r"SUPERTIENDAS\s+OLÍMPICA",
+            r"DROGUERIAS\s+OLIMPICA",
+            r"890\.?107\.?487",
+            r"SAO\b"
+        ]
+    },
+    {
+        "name": "Éxito",
+        "patterns": [
+            r"\bEXITO\b",
+            r"\bÉXITO\b",
+            r"ALMACENES\s+EXITO",
+            r"GRUPO\s+EXITO",
+            r"890\.?900\.?608"
+        ]
+    },
+    {
+        "name": "Ara",
+        "patterns": [
+            r"TIENDAS\s+ARA",
+            r"\bARA\b",
+            r"JERONIMO\s+MARTINS",
+            r"JERÓNIMO\s+MARTINS",
+            r"900\.?501\.?659"
+        ]
+    },
+    {
+        "name": "Carulla",
+        "patterns": [
+            r"CARULLA",
+            r"SUPERMERCADO\s+CARULLA"
+        ]
+    },
+    {
+        "name": "Jumbo",
+        "patterns": [
+            r"JUMBO",
+            r"TIENDAS\s+JUMBO",
+            r"CENCOSUD",
+            r"METRO"
+        ]
+    }
+]
+
+# Palabras clave prioritarias para el total en tirillas de supermercados colombianos
 PRIORITY_TOTAL_KEYWORDS = [
     "TOTAL A PAGAR",
     "TOTAL PAGAR",
     "NETO A PAGAR",
     "VALOR TOTAL",
-    "TOTAL COMPRA",
     "TOTAL FACTURA",
     "TOTAL VENTA",
+    "TOTAL COMPRA",
+    "TOTAL COMPROBANTE",
+    "TOTAL A COBRAR",
     "TOTAL:",
     "TOTAL"
 ]
@@ -37,49 +115,84 @@ PAYMENT_KEYWORDS = [
     "TARJETA CREDITO",
     "TARJETA",
     "TRANSFERENCIA",
-    "PAGO:",
+    "TRANSACCION",
+    "PAGO ELECTRONICO",
     "FORMA DE PAGO",
-    "MEDIO DE PAGO"
+    "MEDIO DE PAGO",
+    "PAGO:"
 ]
 
-# Palabras que DEBEN descartarse para no confundir con el total real
+# Palabras que DEBEN descartarse para evitar totales erróneos
 DISCARD_KEYWORDS = [
     "SUBTOTAL",
     "SUB TOTAL",
+    "SUB-TOTAL",
     "AHORRO",
+    "USTED AHORRO",
+    "SU AHORRO",
     "DESCUENTO",
+    "DCTO",
     "REBAJA",
     "CAMBIO",
     "VUELTAS",
+    "SU CAMBIO",
+    "SUS VUELTAS",
     "RECIBIDO",
+    "ENTREGADO",
     "BASE",
     "GRAVABLE",
+    "BASE GRAVABLE",
+    "EXENTO",
+    "EXCLUIDO",
     "IVA",
     "ICO",
     "INC",
-    "EXENTO",
+    "IMPUESTO",
     "NIT",
+    "RUT",
     "AUTORIZACION",
     "RESOLUCION",
     "DIAN",
     "CUFE",
     "CONSECUTIVO",
+    "FACTURA ELECTRONICA",
     "TELEFONO",
     "TEL:",
+    "DIRECCION",
+    "DIR:",
     "CAJA",
     "CAJERO",
     "PROPINA",
+    "BOLSA",
+    "IMP. BOLSA",
+    "PUNTOS",
+    "PUNTOS COLOMBIA",
     "REGIMEN"
 ]
 
-# Identificadores de tiendas Ísimo
-ISIMO_IDENTIFIERS = [
-    "ISIMO",
-    "TIENDAS ISIMO",
-    "ISIMO S.A.S",
-    "901621579",
-    "901.621.579"
-]
+# NITs conocidos de supermercados para descartar como montos
+SUPERMARKET_NITS = {
+    900276962,  # D1
+    901621579,  # Ísimo
+    890107487,  # Olímpica
+    890900608,  # Éxito
+    900501659,  # Ara
+    900155107   # Cencosud
+}
+
+
+def detect_supermarket_vendor(text: str) -> str:
+    """Detecta el nombre del supermercado a partir del texto OCR o cabeceras."""
+    if not text:
+        return "Supermercado"
+
+    upper_text = text.upper()
+    for item in SUPERMARKET_PATTERNS:
+        for pat in item["patterns"]:
+            if re.search(pat, upper_text, re.IGNORECASE):
+                return item["name"]
+
+    return "Supermercado"
 
 
 def estimate_image_sharpness(image_bytes: bytes) -> Tuple[float, bool]:
@@ -92,11 +205,9 @@ def estimate_image_sharpness(image_bytes: bytes) -> Tuple[float, bool]:
         return (0.0, True)
 
     try:
-        # Intentar con PIL si estuviera disponible en el entorno
         try:
             from PIL import Image
             img = Image.open(io.BytesIO(image_bytes)).convert("L")
-            # Reducir tamaño para cálculo rápido y representativo
             img.thumbnail((300, 300))
             pixels = list(img.getdata())
             width, height = img.size
@@ -104,12 +215,10 @@ def estimate_image_sharpness(image_bytes: bytes) -> Tuple[float, bool]:
             if width < 10 or height < 10:
                 return (10.0, True)
 
-            # Cálculo de la varianza del Laplaciano en escala de grises
             laplacian_vals = []
             for y in range(1, height - 1):
                 row_idx = y * width
                 for x in range(1, width - 1):
-                    # Kernel [[0, 1, 0], [1, -4, 1], [0, 1, 0]]
                     center = pixels[row_idx + x]
                     up = pixels[(y - 1) * width + x]
                     down = pixels[(y + 1) * width + x]
@@ -123,14 +232,13 @@ def estimate_image_sharpness(image_bytes: bytes) -> Tuple[float, bool]:
 
             mean_lap = sum(laplacian_vals) / len(laplacian_vals)
             variance = sum((v - mean_lap) ** 2 for v in laplacian_vals) / len(laplacian_vals)
-            
-            # Normalización del score de nitidez a escala 0..100
+
             score = min(100.0, round(variance / 8.0, 1))
-            is_blurry = score < 35.0
+            is_blurry = score < 30.0
             return (score, is_blurry)
 
         except ImportError:
-            # Análisis nativo de bytes de imagen (gradientes de compresión / entropía de frecuencias)
+            # Fallback nativo sobre los bytes del archivo
             sample = image_bytes[:min(10000, len(image_bytes))]
             diffs = [abs(sample[i] - sample[i - 1]) for i in range(1, len(sample))]
             if not diffs:
@@ -159,7 +267,7 @@ def normalize_cop_amount(text_val: str) -> Optional[int]:
 
     cleaned = text_val.strip().replace("$", "").strip()
 
-    # Si trae decimales en ceros (,00 o .00), descartarlos
+    # Descartar decimales en ceros (,00 o .00)
     cleaned = re.sub(r'[,.]00$', '', cleaned)
 
     # Remover puntos o comas usados como separadores de miles
@@ -170,9 +278,13 @@ def normalize_cop_amount(text_val: str) -> Optional[int]:
 
     try:
         val = int(digits_only)
-        # Rango válido para compras de hogar en Colombia: entre $1.000 y $15.000.000 COP
-        # Descarta NITs (ej. 901621579), fechas (20261120) o códigos de barras
-        if 800 <= val <= 10000000 and val != 901621579:
+        # Rango válido para compras de hogar en Colombia: entre $800 y $15.000.000 COP
+        # Descarta NITs, fechas completas (ej. 20261121) o códigos de barras
+        if 800 <= val <= 15000000 and val not in SUPERMARKET_NITS:
+            # Descartar si parece fecha AAAAMMDD
+            s_val = str(val)
+            if len(s_val) == 8 and s_val.startswith("202"):
+                return None
             return val
     except ValueError:
         pass
@@ -180,16 +292,16 @@ def normalize_cop_amount(text_val: str) -> Optional[int]:
     return None
 
 
-def parse_isimo_receipt_text(ocr_text: str) -> Dict[str, Any]:
+def parse_supermarket_receipt_text(ocr_text: str) -> Dict[str, Any]:
     """
-    Analiza las líneas del ticket de compra de Ísimo con reglas colombianas POS.
-    Prioriza las líneas finales donde se ubica el TOTAL A PAGAR.
+    Analiza las líneas de una tirilla de supermercado en Colombia (D1, Ísimo, Olímpica, etc.).
+    Prioriza las líneas finales donde se ubica el TOTAL A PAGAR o medios de pago.
     """
     if not ocr_text or not ocr_text.strip():
         return {
             "success": False,
             "confidence": 0.0,
-            "vendor": "Ísimo",
+            "vendor": "Supermercado",
             "amount": None,
             "message": "No se detectó texto en el ticket."
         }
@@ -197,41 +309,37 @@ def parse_isimo_receipt_text(ocr_text: str) -> Dict[str, Any]:
     lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
     upper_lines = [l.upper() for l in lines]
 
-    # Verificar si es un ticket de Ísimo
-    is_isimo = any(any(ident in l for ident in ISIMO_IDENTIFIERS) for l in upper_lines)
-    vendor_name = "Ísimo" if is_isimo else "Supermercado"
+    # Detectar el comercio (D1, Ísimo, Olímpica, Éxito, Ara, o Supermercado)
+    vendor_name = detect_supermarket_vendor(ocr_text)
 
     # Regex para extraer montos en pesos colombianos
     amount_regex = re.compile(r'(?:\$\s*)?([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]{2})?|[0-9]{4,7})')
 
     candidates = []
-
-    # Recorrer de abajo hacia arriba (las líneas finales contienen los totales)
     total_lines_count = len(upper_lines)
+
+    # Recorrer de abajo hacia arriba (los totales están en la parte inferior)
     for idx in reversed(range(total_lines_count)):
         line = upper_lines[idx]
 
-        # Verificar si la línea contiene palabras de descarte
+        # Descartar líneas con palabras vetadas
         if any(discard in line for discard in DISCARD_KEYWORDS):
             continue
 
-        # Prioridad 1: Línea con etiqueta de TOTAL A PAGAR
         is_priority_total = any(k in line for k in PRIORITY_TOTAL_KEYWORDS)
         is_payment_line = any(k in line for k in PAYMENT_KEYWORDS)
 
-        # Buscar cifras en la línea
         matches = amount_regex.findall(line)
         for m in matches:
             normalized = normalize_cop_amount(m)
             if normalized:
-                # Calcular peso / confianza según posición y etiqueta
                 weight = 10
                 if is_priority_total:
                     weight += 50
                 if is_payment_line:
                     weight += 30
-                # Líneas más cercanas al final tienen mayor peso
-                weight += int((idx / max(1, total_lines_count)) * 20)
+                # Mayor peso relativo a las líneas cercanas al final
+                weight += int((idx / max(1, total_lines_count)) * 25)
 
                 candidates.append({
                     "amount": normalized,
@@ -257,6 +365,8 @@ def parse_isimo_receipt_text(ocr_text: str) -> Dict[str, Any]:
     if best["is_priority"]:
         confidence = max(0.85, confidence)
 
+    formatted_amount = f"${best['amount']:,} COP".replace(",", ".")
+
     return {
         "success": confidence >= 0.70,
         "confidence": confidence,
@@ -265,8 +375,12 @@ def parse_isimo_receipt_text(ocr_text: str) -> Dict[str, Any]:
         "raw_line": best["line"],
         "category": "Mercado / Supermercado",
         "description": f"Compra {vendor_name}",
-        "message": f"Total detectado: ${best['amount']:,} COP".replace(",", ".")
+        "message": f"Total detectado: {formatted_amount}"
     }
+
+
+# Compatibilidad hacia atrás con el nombre anterior
+parse_isimo_receipt_text = parse_supermarket_receipt_text
 
 
 def process_receipt_image(
@@ -274,39 +388,38 @@ def process_receipt_image(
     client_ocr_text: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Punto de entrada integral:
-    1. Evalúa nitidez y detecta si está borrosa.
-    2. Aplica preprocesamiento para compensar el contraste débil del papel térmico.
-    3. Extrae y normaliza el total de Ísimo en pesos colombianos (COP).
+    Punto de entrada integral para procesamiento de fotos de facturas:
+    1. Evalúa nitidez y detecta desenfoque (Laplacian score).
+    2. Realiza preprocesamiento térmico (escala de grises, contraste, nitidez).
+    3. Detecta comercio (D1, Ísimo, Olímpica, etc.) y extrae el total en COP.
     4. Si es borrosa o dudosa, retorna respuesta de respaldo para reintento o ingreso manual.
     """
     sharpness_score, is_blurry = estimate_image_sharpness(image_bytes)
 
-    # Si la foto es excesivamente borrosa y no vino texto de alta confianza, activar respaldo
+    # Si la foto es excesivamente borrosa y no vino texto de alta confianza
     if is_blurry and (not client_ocr_text or len(client_ocr_text.strip()) < 15):
         return {
             "success": False,
             "is_blurry": True,
             "sharpness_score": sharpness_score,
             "confidence": 0.30,
-            "vendor": "Ísimo",
+            "vendor": "Supermercado",
             "amount": None,
             "message": "La foto salió borrosa o difícil de leer. Por favor reintenta con mejor iluminación o escribe el total manualmente."
         }
 
-    # Texto a analizar: priorizar OCR provisto o heurístico
     text_to_parse = client_ocr_text or ""
 
-    # Si no se pasó texto desde el cliente, intentar extracción con Tesseract si está disponible
-    if not text_to_parse:
+    # Preprocesamiento y OCR si no vino texto del cliente
+    if not text_to_parse and image_bytes:
         try:
-            import pytesseract
             from PIL import Image, ImageEnhance, ImageOps
+            import pytesseract
 
             img = Image.open(io.BytesIO(image_bytes)).convert("L")
-            # Preprocesamiento térmico: aumentar contraste y nitidez
+            # Mejora para papel térmico (D1, Ísimo, Olímpica)
             enhancer = ImageEnhance.Contrast(img)
-            img_contrast = enhancer.enhance(2.0)
+            img_contrast = enhancer.enhance(2.2)
             sharpener = ImageEnhance.Sharpness(img_contrast)
             img_sharp = sharpener.enhance(1.8)
 
@@ -314,25 +427,70 @@ def process_receipt_image(
         except Exception:
             pass
 
-    # Si aún no hay texto, simular lectura básica para pruebas o pedir ingreso manual
     if not text_to_parse:
         return {
             "success": False,
             "is_blurry": is_blurry,
             "sharpness_score": sharpness_score,
             "confidence": 0.40,
-            "vendor": "Ísimo",
+            "vendor": "Supermercado",
             "amount": None,
             "message": "No se pudo extraer el texto de la tirilla térmica. Por favor escribe el total manualmente."
         }
 
-    # Analizar el texto con el parser especializado de Ísimo
-    result = parse_isimo_receipt_text(text_to_parse)
+    result = parse_supermarket_receipt_text(text_to_parse)
     result["is_blurry"] = is_blurry
     result["sharpness_score"] = sharpness_score
 
-    # Ajustar mensaje si la confianza es media o baja
     if not result["success"]:
         result["message"] = "No se pudo confirmar con certeza el total del ticket. Verifica el valor o ingrésalo manualmente."
+
+    return result
+
+
+def process_and_save_receipt(
+    image_bytes: bytes = b"",
+    client_ocr_text: Optional[str] = None,
+    auto_save: bool = True,
+    paid_by: str = "Gil",
+    category: str = "Mercado / Supermercado"
+) -> Dict[str, Any]:
+    """
+    Procesa la tirilla de supermercado (D1, Ísimo, Olímpica, etc.) y si la lectura
+    es confiable y nítida, guarda el gasto automáticamente en la base de datos.
+    """
+    from services.budget_service import create_transaction
+
+    # 1. Si vino texto directo o imagen
+    if client_ocr_text and not image_bytes:
+        parsed = parse_supermarket_receipt_text(client_ocr_text)
+        parsed["is_blurry"] = False
+        parsed["sharpness_score"] = 90.0
+        result = parsed
+    else:
+        result = process_receipt_image(image_bytes, client_ocr_text)
+
+    # 2. Si es nítido y exitoso, auto-guardar si auto_save es True
+    if result.get("success") and not result.get("is_blurry") and result.get("amount"):
+        if auto_save:
+            vendor = result.get("vendor", "Supermercado")
+            tx_data = {
+                "description": f"Compra {vendor}",
+                "amount": result["amount"],
+                "type": "gasto",
+                "category": category or "Mercado / Supermercado",
+                "paid_by": paid_by or "Gil",
+                "date": datetime.date.today().isoformat(),
+                "vendor": vendor,
+                "ocr_confidence": result.get("confidence", 0.90)
+            }
+            saved_tx = create_transaction(tx_data)
+            result["auto_saved"] = True
+            result["transaction"] = saved_tx
+            result["message"] = f"✓ Gasto de {vendor} guardado automáticamente por ${result['amount']:,} COP en el fondo común.".replace(",", ".")
+        else:
+            result["auto_saved"] = False
+    else:
+        result["auto_saved"] = False
 
     return result

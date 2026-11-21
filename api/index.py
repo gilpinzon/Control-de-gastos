@@ -38,7 +38,11 @@ from services.budget_service import (
     delete_shopping_item,
     sync_all
 )
-from services.receipt_scanner import process_receipt_image, parse_isimo_receipt_text
+from services.receipt_scanner import (
+    process_receipt_image,
+    parse_isimo_receipt_text,
+    process_and_save_receipt
+)
 
 app = FastAPI(
     title="DuoControl API",
@@ -186,30 +190,38 @@ async def sync_data(request: Request):
 
 
 # ------------------------------------------------------------------------------
-# 6. ESCANEO Y PARSEO INTELIGENTE DE FACTURAS ÍSIMO COLOMBIA (OCR / RESPLADO)
+# 6. ESCANEO Y GUARDADO AUTOMÁTICO DE FACTURAS (D1, ÍSIMO, OLÍMPICA, ÉXITO, ETC.)
 # ------------------------------------------------------------------------------
 @app.post("/api/scan-receipt")
 @app.post("/api/receipts/scan")
+@app.post("/api/receipts/scan-and-save")
 async def scan_receipt(
     file: Optional[UploadFile] = File(None),
     ocr_text: Optional[str] = Form(None),
+    auto_save: Optional[str] = Form("true"),
+    paid_by: Optional[str] = Form("Gil"),
+    category: Optional[str] = Form("Mercado / Supermercado"),
     request: Request = None
 ):
     """
-    Endpoint especializado para escanear tirillas térmicas de compra (Ísimo Colombia):
-    - Preprocesa la imagen mejorando contraste y detectando fotos borrosas.
-    - Extrae el total normalizado a pesos colombianos (COP).
-    - Si la foto es borrosa o de baja confianza, devuelve una respuesta de respaldo
-      con banderas claras para reintentar la foto o escribir el total manualmente.
+    Endpoint especializado para procesar y guardar facturas de supermercados (D1, Ísimo, Olímpica, etc.):
+    - Aplica preprocesamiento térmico y detector de desenfoque.
+    - Extrae el monto en COP descartando subtotales, impuestos y vueltas.
+    - Si la foto es nítida y se leyó con confianza, GUARDA DIRECTAMENTE el gasto en Neon PostgreSQL / fondo común.
+    - Si la foto es borrosa o el total no es claro, NO guarda datos falsos y devuelve estado de respaldo.
     """
     image_bytes = b""
     text_input = ocr_text
+    should_auto_save = str(auto_save).lower() in ("true", "1", "yes")
+    payer = paid_by or "Gil"
+    cat = category or "Mercado / Supermercado"
 
-    # Si se subió un archivo por multipart
-    if file:
-        image_bytes = await file.read()
-    else:
-        # Verificar si vino payload JSON con base64 o texto directo
+    if file and hasattr(file, "read"):
+        try:
+            image_bytes = await file.read()
+        except Exception:
+            pass
+    elif request and hasattr(request, "json"):
         try:
             body = await request.json()
             if "image_base64" in body:
@@ -219,19 +231,22 @@ async def scan_receipt(
                 image_bytes = base64.b64decode(b64_data)
             if "ocr_text" in body and not text_input:
                 text_input = body["ocr_text"]
+            if "auto_save" in body:
+                should_auto_save = bool(body["auto_save"])
+            if "paid_by" in body:
+                payer = body["paid_by"]
+            if "category" in body:
+                cat = body["category"]
         except Exception:
             pass
 
-    # Si se pasó texto plano directo para análisis
-    if text_input and not image_bytes:
-        parsed = parse_isimo_receipt_text(text_input)
-        parsed["is_blurry"] = False
-        parsed["sharpness_score"] = 90.0
-        return parsed
-
-    # Procesar imagen con preprocesamiento térmico y detector de desenfoque
-    result = process_receipt_image(image_bytes, text_input)
-    return result
+    return process_and_save_receipt(
+        image_bytes=image_bytes,
+        client_ocr_text=text_input,
+        auto_save=should_auto_save,
+        paid_by=payer,
+        category=cat
+    )
 
 
 # ------------------------------------------------------------------------------

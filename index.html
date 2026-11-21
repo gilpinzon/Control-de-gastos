@@ -210,6 +210,23 @@
         </div>
       </div>
 
+      <!-- BOTÓN PRINCIPAL MÓVIL: ESCANEO Y GUARDADO AUTOMÁTICO DE FACTURAS -->
+      <div class="my-1">
+        <button type="button" onclick="app.triggerDirectReceiptScan()" id="btnDirectReceiptScan"
+          class="w-full min-h-[54px] p-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white font-extrabold text-sm flex items-center justify-between shadow-xl shadow-indigo-600/30 border border-indigo-400/40 touch-press transition-all">
+          <div class="flex items-center space-x-3 text-left">
+            <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 shadow-inner">
+              <i data-lucide="camera" class="w-5 h-5 text-white"></i>
+            </div>
+            <div>
+              <span class="block font-black text-sm tracking-tight">📸 Tomar Foto Factura Supermercado</span>
+              <span class="block text-[11px] text-indigo-200/90 font-medium">D1 • Ísimo • Olímpica • Éxito • Guarda automático</span>
+            </div>
+          </div>
+          <span class="px-2.5 py-1 rounded-xl bg-white/20 text-[10px] font-black uppercase tracking-wider shrink-0 border border-white/20">Auto</span>
+        </button>
+      </div>
+
       <!-- REQUERIMIENTO 5: BOTONES SEPARADOS Y VISUALES PARA REGISTRO DE GASTOS E INGRESOS -->
       <div class="grid grid-cols-2 gap-2.5">
         <button onclick="app.openTransactionModal('gasto')"
@@ -650,6 +667,10 @@
 
   </main>
 
+  <!-- Hidden Input for Direct Camera Receipt Scan (iOS & Android) -->
+  <input type="file" id="directReceiptInput" accept="image/*" capture="environment" class="hidden"
+    onchange="app.handleDirectReceiptFile(event)" />
+
   <!-- ========================================================
        FLOATING ACTION BUTTON (CENTRAL TOUCH ZONE)
        ======================================================== -->
@@ -680,14 +701,15 @@
         <span class="text-[10px] font-semibold mt-1">Mercado</span>
       </button>
 
-      <!-- Center Quick Add Button in Nav -->
-      <button onclick="app.openTransactionModal('gasto')"
-        class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-0.5 text-slate-400 hover:text-emerald-400 transition-colors touch-press">
+      <!-- Direct Camera Scan in Nav Bar (Área táctil >= 48px) -->
+      <button onclick="app.triggerDirectReceiptScan()" id="navBtn-scan"
+        class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-0.5 text-indigo-400 hover:text-indigo-300 transition-colors touch-press"
+        aria-label="Tomar foto de factura">
         <div
-          class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-          <i data-lucide="plus" class="w-4 h-4"></i>
+          class="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-lg shadow-indigo-600/40 border border-indigo-400/30">
+          <i data-lucide="camera" class="w-4 h-4"></i>
         </div>
-        <span class="text-[9px] font-bold mt-0.5">Nuevo</span>
+        <span class="text-[9px] font-bold mt-0.5 text-indigo-300">Factura</span>
       </button>
 
       <!-- Tab 3: Unified Fund -->
@@ -962,6 +984,62 @@
           ¡Listo!
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       MODAL DE PROCESAMIENTO MÓVIL DE FACTURA
+       ======================================================== -->
+  <div id="directScanOverlay"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+    <div class="w-full max-w-sm bg-[#0e1422] border border-indigo-500/40 rounded-3xl p-6 shadow-2xl text-center space-y-4">
+      <div class="relative w-16 h-16 mx-auto flex items-center justify-center">
+        <div class="absolute inset-0 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
+        <i data-lucide="camera" class="w-7 h-7 text-indigo-400"></i>
+      </div>
+      <div>
+        <h3 class="text-base font-extrabold text-white">Analizando Factura</h3>
+        <p class="text-xs text-indigo-200/80 mt-1">Visión térmica para D1, Ísimo, Olímpica y Éxito...</p>
+      </div>
+      <div class="py-2 px-3 rounded-xl bg-indigo-950/60 border border-indigo-500/25 text-[11px] text-indigo-300 font-semibold flex items-center justify-center space-x-2">
+        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+        <span>Extrayendo total en COP y guardando...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================
+       MODAL DE RESPALDO ANTE FOTO BORROSA O DUDOSA
+       ======================================================== -->
+  <div id="blurryFallbackSheet"
+    class="hidden fixed inset-0 z-50 flex items-end justify-center p-0 bg-black/85 backdrop-blur-sm">
+    <div class="w-full max-w-md bg-[#0e1422] border-t border-amber-500/30 rounded-t-[2rem] p-5 modal-bottom-sheet space-y-4 shadow-2xl">
+      <div class="drag-handle-bar"></div>
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-extrabold text-white">Foto borrosa o difícil de leer</h3>
+          <p id="blurrySheetMsg" class="text-xs text-amber-200/80">No se guardó ningún valor falso. ¿Qué deseas hacer?</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2.5 pt-1">
+        <button type="button" onclick="app.retryDirectReceiptScan()"
+          class="min-h-[50px] py-3 px-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-1.5 touch-press shadow-lg shadow-amber-500/30">
+          <i data-lucide="camera" class="w-4 h-4"></i>
+          <span>Tomar otra foto</span>
+        </button>
+        <button type="button" onclick="app.openQuickManualAmount()"
+          class="min-h-[50px] py-3 px-3 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-black text-xs sm:text-sm flex items-center justify-center space-x-1.5 touch-press border border-white/10">
+          <i data-lucide="edit-3" class="w-4 h-4"></i>
+          <span>Escribir total rápido</span>
+        </button>
+      </div>
+      <button type="button" onclick="app.closeBlurryFallbackSheet()"
+        class="w-full min-h-[44px] py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white touch-press text-center">
+        Cancelar
+      </button>
     </div>
   </div>
 

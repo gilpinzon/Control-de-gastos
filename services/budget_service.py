@@ -103,10 +103,10 @@ def create_transaction(data: Dict[str, Any]) -> Dict[str, Any]:
     category = data.get("category") or "Otros"
     description = data.get("description") or ""
     date_val = data.get("date") or datetime.date.today().isoformat()
-    paid_by = data.get("paidBy") or "Gil"
+    paid_by = data.get("paidBy") or data.get("paid_by") or "Gil"
     vendor = data.get("vendor") or ""
-    ocr_confidence = float(data.get("ocrConfidence", 0))
-    receipt_image_url = data.get("receiptImageUrl") or ""
+    ocr_confidence = float(data.get("ocrConfidence") or data.get("ocr_confidence") or 0)
+    receipt_image_url = data.get("receiptImageUrl") or data.get("receipt_image_url") or ""
 
     tx_id = data.get("id")
     if not tx_id or len(str(tx_id)) < 10:
@@ -128,6 +128,7 @@ def create_transaction(data: Dict[str, Any]) -> Dict[str, Any]:
         FROM transactions WHERE id = ?;
     """, (tx_id,))
     row = dict(cursor.fetchone())
+    row["paid_by"] = row.get("paidBy")
     conn.close()
     return row
 

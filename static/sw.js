@@ -108,7 +108,7 @@ self.addEventListener('fetch', (event) => {
           if (networkResponse && networkResponse.ok) {
             // Reconstruir si fue redirigida para evitar "Response served by service worker has redirections"
             const cleanResponse = await cleanRedirectedResponse(networkResponse);
-            
+
             // Actualizar caché de shell en segundo plano
             const cache = await caches.open(CACHE_NAME);
             cache.put('/index.html', cleanResponse.clone());
@@ -120,7 +120,7 @@ self.addEventListener('fetch', (event) => {
 
         // Fallback offline: buscar en caché ignorando query strings de shortcuts (?action=new_expense, etc.)
         const cached = await caches.match('/index.html', { ignoreSearch: true }) ||
-                       await caches.match('/', { ignoreSearch: true });
+          await caches.match('/', { ignoreSearch: true });
         if (cached) {
           return cached;
         }
