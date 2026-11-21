@@ -103,6 +103,7 @@ class DuoControlApp {
     this.setupPwaListeners();
     this.setupDateDefaults();
     this.setupMonthDropdown();
+    this.setupNumericInputKeyboards();
     this.applySettingsToUI();
     this.updateHeaderUI();
     this.renderDashboard();
@@ -120,6 +121,28 @@ class DuoControlApp {
     if (window.lucide) {
       lucide.createIcons();
     }
+  }
+
+  // Activa el teclado numérico nativo por defecto en Android y iOS para todos los campos de cifras
+  setupNumericInputKeyboards() {
+    const numericInputs = [
+      'txAmountInput',
+      'settingsSavingsGoal',
+      'groceryQuantityInput'
+    ];
+    numericInputs.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        // pattern y inputmode configuran el teclado numérico estándar en Safari y Chrome
+        el.setAttribute('inputmode', 'numeric');
+        el.setAttribute('pattern', '[0-9]*');
+        el.setAttribute('autocomplete', 'off');
+        el.addEventListener('input', (e) => {
+          // Filtrar cualquier carácter no numérico para mantener COP en enteros limpios
+          e.target.value = e.target.value.replace(/[^0-9]/g, '');
+        });
+      }
+    });
   }
 
   // Configura la fecha actual por defecto en el input
@@ -1511,7 +1534,7 @@ class DuoControlApp {
   addAmount(val) {
     const input = document.getElementById('txAmountInput');
     if (!input) return;
-    const current = parseFloat(input.value) || 0;
+    const current = parseFloat((input.value || '').replace(/[^0-9]/g, '')) || 0;
     input.value = current + val;
     if (navigator.vibrate) navigator.vibrate(10);
   }
@@ -1530,7 +1553,8 @@ class DuoControlApp {
     const dateInput = document.getElementById('txDateInput');
     const descInput = document.getElementById('txDescriptionInput');
 
-    const amount = parseFloat(amountInput ? amountInput.value : 0);
+    const cleanAmountStr = amountInput ? (amountInput.value || '').replace(/[^0-9]/g, '') : '0';
+    const amount = parseFloat(cleanAmountStr || 0);
     if (!amount || amount <= 0) {
       alert('Ingresa un monto válido para el fondo');
       return;
@@ -1904,3 +1928,57 @@ class DuoControlApp {
 
 // Inicializar la aplicación globalmente
 window.app = new DuoControlApp();
+
+// Exponer funciones globales de cámara y modal para compatibilidad 100% inmediata en móvil
+window.triggerDirectReceiptScan = function () {
+  if (window.app && typeof window.app.triggerDirectReceiptScan === 'function') {
+    return window.app.triggerDirectReceiptScan();
+  }
+  const input = document.getElementById('directReceiptInput') || document.getElementById('receiptFileInput');
+  if (input) {
+    input.value = '';
+    input.click();
+  }
+};
+
+window.handleDirectReceiptFile = function (e) {
+  if (window.app && typeof window.app.handleDirectReceiptFile === 'function') {
+    return window.app.handleDirectReceiptFile(e);
+  }
+};
+
+window.handleReceiptFileSelected = function (e) {
+  if (window.app && typeof window.app.handleReceiptFileSelected === 'function') {
+    return window.app.handleReceiptFileSelected(e);
+  }
+};
+
+window.retryDirectReceiptScan = function () {
+  if (window.app && typeof window.app.retryDirectReceiptScan === 'function') {
+    return window.app.retryDirectReceiptScan();
+  }
+  window.triggerDirectReceiptScan();
+};
+
+window.openQuickManualAmount = function (vendor) {
+  if (window.app && typeof window.app.openQuickManualAmount === 'function') {
+    return window.app.openQuickManualAmount(vendor);
+  }
+  if (window.app && typeof window.app.openTransactionModal === 'function') {
+    window.app.openTransactionModal('gasto');
+  }
+};
+
+window.closeBlurryFallbackSheet = function () {
+  const sheet = document.getElementById('blurryFallbackSheet');
+  if (sheet) sheet.classList.add('hidden');
+};
+
+if (window.app) {
+  window.app.triggerDirectReceiptScan = window.app.triggerDirectReceiptScan || window.triggerDirectReceiptScan;
+  window.app.handleDirectReceiptFile = window.app.handleDirectReceiptFile || window.handleDirectReceiptFile;
+  window.app.handleReceiptFileSelected = window.app.handleReceiptFileSelected || window.handleReceiptFileSelected;
+  window.app.retryDirectReceiptScan = window.app.retryDirectReceiptScan || window.retryDirectReceiptScan;
+  window.app.openQuickManualAmount = window.app.openQuickManualAmount || window.openQuickManualAmount;
+  window.app.closeBlurryFallbackSheet = window.app.closeBlurryFallbackSheet || window.closeBlurryFallbackSheet;
+}

@@ -56,8 +56,8 @@
   <!-- Canvas Confetti CDN -->
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
-  <!-- Custom App CSS (Touch targets >= 44px) -->
-  <link rel="stylesheet" href="./app.css" />
+  <!-- Custom App CSS (Touch targets >= 44px) con versionado anti-caché -->
+  <link rel="stylesheet" href="./app.css?v=3.2.1" />
 </head>
 
 <body class="bg-[#07090e] text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
@@ -212,7 +212,7 @@
 
       <!-- BOTÓN PRINCIPAL MÓVIL: ESCANEO Y GUARDADO AUTOMÁTICO DE FACTURAS -->
       <div class="my-1">
-        <button type="button" onclick="app.triggerDirectReceiptScan()" id="btnDirectReceiptScan"
+        <button type="button" onclick="triggerDirectReceiptScan()" id="btnDirectReceiptScan"
           class="w-full min-h-[54px] p-3.5 rounded-2xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:from-indigo-500 hover:to-purple-500 text-white font-extrabold text-sm flex items-center justify-between shadow-xl shadow-indigo-600/30 border border-indigo-400/40 touch-press transition-all">
           <div class="flex items-center space-x-3 text-left">
             <div class="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0 shadow-inner">
@@ -343,7 +343,7 @@
           <div class="flex space-x-2">
             <input type="text" id="groceryItemInput" placeholder="Ej: Arroz, Leche, Huevos, Jabón..." required
               class="flex-1 min-h-[48px] bg-slate-900 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/70" />
-            <input type="text" id="groceryQuantityInput" placeholder="Cant." value="1"
+            <input type="text" inputmode="numeric" pattern="[0-9]*" id="groceryQuantityInput" placeholder="Cant." value="1" autocomplete="off"
               class="w-20 min-h-[48px] bg-slate-900 border border-white/10 rounded-2xl px-2 py-3 text-center text-sm text-white focus:outline-none focus:border-emerald-500/70" />
             <button type="submit"
               class="min-h-[48px] min-w-[52px] bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black px-4 rounded-2xl text-sm flex items-center justify-center touch-press shrink-0 shadow-md shadow-emerald-500/20">
@@ -527,7 +527,7 @@
           </div>
           <div>
             <label class="block text-xs font-medium text-slate-400 mb-1">Meta Mensual de Ahorro Conjunto ($)</label>
-            <input type="number" id="settingsSavingsGoal" value="0" step="50000" placeholder="Ej: 1000000"
+            <input type="text" inputmode="numeric" pattern="[0-9]*" id="settingsSavingsGoal" value="0" placeholder="Ej: 1000000" autocomplete="off"
               class="w-full min-h-[44px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2 text-sm font-bold text-white focus:outline-none focus:border-emerald-500" />
           </div>
           <div>
@@ -668,8 +668,9 @@
   </main>
 
   <!-- Hidden Input for Direct Camera Receipt Scan (iOS & Android) -->
-  <input type="file" id="directReceiptInput" accept="image/*" capture="environment" class="hidden"
-    onchange="app.handleDirectReceiptFile(event)" />
+  <input type="file" id="directReceiptInput" accept="image/*" capture="environment"
+    style="position: fixed; top: -100px; left: -100px; opacity: 0; pointer-events: none; width: 1px; height: 1px; z-index: -10;"
+    onchange="handleDirectReceiptFile(event)" />
 
   <!-- ========================================================
        FLOATING ACTION BUTTON (CENTRAL TOUCH ZONE)
@@ -702,7 +703,7 @@
       </button>
 
       <!-- Direct Camera Scan in Nav Bar (Área táctil >= 48px) -->
-      <button onclick="app.triggerDirectReceiptScan()" id="navBtn-scan"
+      <button onclick="triggerDirectReceiptScan()" id="navBtn-scan"
         class="min-h-[48px] min-w-[56px] flex flex-col items-center justify-center py-0.5 text-indigo-400 hover:text-indigo-300 transition-colors touch-press"
         aria-label="Tomar foto de factura">
         <div
@@ -779,16 +780,17 @@
               <span class="text-[10px] text-indigo-300/80">Tirilla térmica • Extracción automática COP</span>
             </div>
           </div>
-          <button type="button" onclick="app.triggerReceiptScan()" id="btnReceiptScan"
+          <button type="button" onclick="triggerDirectReceiptScan()" id="btnReceiptScan"
             class="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md shadow-indigo-600/30 flex items-center space-x-1.5 touch-press">
             <i data-lucide="scan" class="w-3.5 h-3.5"></i>
             <span>Tomar Foto</span>
           </button>
         </div>
 
-        <!-- Input Oculto de Cámara Nativa Móvil -->
-        <input type="file" id="receiptFileInput" accept="image/*" capture="environment" class="hidden"
-          onchange="app.handleReceiptFileSelected(event)" />
+        <!-- Input Oculto de Cámara Nativa Móvil (Posicionado para 100% compatibilidad iOS/Android) -->
+        <input type="file" id="receiptFileInput" accept="image/*" capture="environment"
+          style="position: fixed; top: -100px; left: -100px; opacity: 0; pointer-events: none; width: 1px; height: 1px; z-index: -10;"
+          onchange="handleReceiptFileSelected(event)" />
 
         <!-- Estado de Procesamiento / Spinner -->
         <div id="receiptScanningStatus"
@@ -813,7 +815,7 @@
             </p>
           </div>
           <div class="flex items-center space-x-2 pt-1">
-            <button type="button" onclick="app.triggerReceiptScan()"
+            <button type="button" onclick="triggerDirectReceiptScan()"
               class="flex-1 min-h-[38px] py-1.5 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs flex items-center justify-center space-x-1 touch-press">
               <i data-lucide="camera" class="w-3.5 h-3.5"></i>
               <span>Reintentar foto</span>
@@ -840,12 +842,12 @@
       <!-- Formulario de Movimiento -->
       <form id="transactionForm" onsubmit="app.handleSaveTransaction(event)" class="space-y-4">
 
-        <!-- Big Touch Amount Input -->
+        <!-- Big Touch Amount Input con Teclado Numérico Nativo para iOS y Android -->
         <div class="text-center py-2 bg-white/[0.02] rounded-2xl border border-white/5">
           <label class="block text-xs font-semibold text-slate-400 mb-1">Monto ($)</label>
           <div class="relative inline-flex items-center justify-center">
             <span id="txCurrencySymbol" class="text-3xl font-extrabold text-slate-400 mr-1.5">$</span>
-            <input type="number" id="txAmountInput" placeholder="0" step="any" required autofocus
+            <input type="text" inputmode="numeric" pattern="[0-9]*" id="txAmountInput" placeholder="0" autocomplete="off" required autofocus
               class="w-56 bg-transparent text-center text-4xl font-black text-white focus:outline-none tabular-nums placeholder-slate-600" />
           </div>
           <!-- Quick Amount Buttons (Touch >= 44px) -->
@@ -1025,18 +1027,18 @@
         </div>
       </div>
       <div class="grid grid-cols-2 gap-2.5 pt-1">
-        <button type="button" onclick="app.retryDirectReceiptScan()"
+        <button type="button" onclick="retryDirectReceiptScan()"
           class="min-h-[50px] py-3 px-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm flex items-center justify-center space-x-1.5 touch-press shadow-lg shadow-amber-500/30">
           <i data-lucide="camera" class="w-4 h-4"></i>
           <span>Tomar otra foto</span>
         </button>
-        <button type="button" onclick="app.openQuickManualAmount()"
+        <button type="button" onclick="openQuickManualAmount()"
           class="min-h-[50px] py-3 px-3 rounded-2xl bg-white/10 hover:bg-white/15 text-white font-black text-xs sm:text-sm flex items-center justify-center space-x-1.5 touch-press border border-white/10">
           <i data-lucide="edit-3" class="w-4 h-4"></i>
           <span>Escribir total rápido</span>
         </button>
       </div>
-      <button type="button" onclick="app.closeBlurryFallbackSheet()"
+      <button type="button" onclick="closeBlurryFallbackSheet()"
         class="w-full min-h-[44px] py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white touch-press text-center">
         Cancelar
       </button>
@@ -1050,8 +1052,65 @@
     <span id="toastMessage">Operación exitosa</span>
   </div>
 
-  <!-- Main Application Logic Script -->
-  <script src="./app.js"></script>
+  <!-- Inline Resilient Fallback for Camera & Scanner Functions (iOS & Android Safe) -->
+  <script>
+    (function() {
+      window.app = window.app || {};
+
+      window.triggerDirectReceiptScan = function() {
+        if (window.app && typeof window.app.triggerDirectReceiptScan === 'function' && window.app.triggerDirectReceiptScan !== window.triggerDirectReceiptScan) {
+          return window.app.triggerDirectReceiptScan();
+        }
+        var input = document.getElementById('directReceiptInput') || document.getElementById('receiptFileInput');
+        if (input) {
+          input.value = '';
+          input.click();
+        }
+      };
+      window.app.triggerDirectReceiptScan = window.triggerDirectReceiptScan;
+
+      window.handleDirectReceiptFile = function(e) {
+        if (window.app && typeof window.app.handleDirectReceiptFile === 'function' && window.app.handleDirectReceiptFile !== window.handleDirectReceiptFile) {
+          return window.app.handleDirectReceiptFile(e);
+        }
+      };
+      window.app.handleDirectReceiptFile = window.handleDirectReceiptFile;
+
+      window.handleReceiptFileSelected = function(e) {
+        if (window.app && typeof window.app.handleReceiptFileSelected === 'function' && window.app.handleReceiptFileSelected !== window.handleReceiptFileSelected) {
+          return window.app.handleReceiptFileSelected(e);
+        }
+      };
+      window.app.handleReceiptFileSelected = window.handleReceiptFileSelected;
+
+      window.retryDirectReceiptScan = function() {
+        if (window.app && typeof window.app.retryDirectReceiptScan === 'function' && window.app.retryDirectReceiptScan !== window.retryDirectReceiptScan) {
+          return window.app.retryDirectReceiptScan();
+        }
+        window.triggerDirectReceiptScan();
+      };
+      window.app.retryDirectReceiptScan = window.retryDirectReceiptScan;
+
+      window.openQuickManualAmount = function(vendor) {
+        if (window.app && typeof window.app.openQuickManualAmount === 'function' && window.app.openQuickManualAmount !== window.openQuickManualAmount) {
+          return window.app.openQuickManualAmount(vendor);
+        }
+        if (window.app && typeof window.app.openTransactionModal === 'function') {
+          window.app.openTransactionModal('gasto');
+        }
+      };
+      window.app.openQuickManualAmount = window.openQuickManualAmount;
+
+      window.closeBlurryFallbackSheet = function() {
+        var sheet = document.getElementById('blurryFallbackSheet');
+        if (sheet) sheet.classList.add('hidden');
+      };
+      window.app.closeBlurryFallbackSheet = window.closeBlurryFallbackSheet;
+    })();
+  </script>
+
+  <!-- Main Application Logic Script con Versionado Anti-Caché -->
+  <script src="./app.js?v=3.2.1"></script>
 
   <!-- PWA Service Worker Registration & Icon Renderer -->
   <script>
@@ -1061,9 +1120,33 @@
     window.addEventListener('load', () => {
       if (window.lucide) lucide.createIcons();
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js')
-          .then(reg => console.log('[ServiceWorker] Registrado con éxito para Gil & Ale:', reg.scope))
+        navigator.serviceWorker.register('/sw.js?v=3.2.1')
+          .then(reg => {
+            console.log('[ServiceWorker] Registrado con éxito para Gil & Ale:', reg.scope);
+            reg.update();
+            if (reg.waiting) {
+              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    newWorker.postMessage({ type: 'SKIP_WAITING' });
+                  }
+                });
+              }
+            });
+          })
           .catch(err => console.warn('[ServiceWorker] Error en registro:', err));
+
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
       }
     });
   </script>

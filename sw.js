@@ -21,7 +21,14 @@
  * ==============================================================================
  */
 
-const CACHE_NAME = 'duocontrol-pwa-v3.0.0';
+const CACHE_NAME = 'duocontrol-pwa-v3.2.1';
+
+// Escuchar mensaje para forzar actualización inmediata
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
 
 const STATIC_ASSETS = [
   '/',
