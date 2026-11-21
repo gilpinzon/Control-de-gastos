@@ -21,7 +21,7 @@
  * ==============================================================================
  */
 
-const CACHE_NAME = 'duocontrol-pwa-v3.2.1';
+const CACHE_NAME = 'duocontrol-pwa-v3.3.0';
 
 // Escuchar mensaje para forzar actualización inmediata
 self.addEventListener('message', (event) => {

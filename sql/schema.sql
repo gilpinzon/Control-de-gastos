@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     receipt_image_url TEXT DEFAULT '',
     vendor TEXT DEFAULT '',
     ocr_confidence NUMERIC(4, 2) DEFAULT 0,
+    items_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -35,8 +36,21 @@ CREATE TABLE IF NOT EXISTS transactions (
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS receipt_image_url TEXT DEFAULT '';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS vendor TEXT DEFAULT '';
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS ocr_confidence NUMERIC(4, 2) DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS items_count INTEGER DEFAULT 0;
 
--- 3. TABLA DE LISTA DE MERCADO (SUPERMERCADO EN TIEMPO REAL)
+-- 3. TABLA DE ÍTEMS Y PRODUCTOS DE FACTURA (DESGLOSE POR PRODUCTO, UNIDAD Y VALOR COP)
+CREATE TABLE IF NOT EXISTS transaction_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    transaction_id UUID NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    quantity NUMERIC(10, 2) NOT NULL DEFAULT 1,
+    unit TEXT NOT NULL DEFAULT 'UND',
+    unit_price NUMERIC(14, 2) DEFAULT 0,
+    total_price NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 4. TABLA DE LISTA DE MERCADO (SUPERMERCADO EN TIEMPO REAL)
 CREATE TABLE IF NOT EXISTS shopping_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -50,12 +64,13 @@ CREATE TABLE IF NOT EXISTS shopping_items (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 4. ÍNDICES DE RENDIMIENTO
+-- 5. ÍNDICES DE RENDIMIENTO
 CREATE INDEX IF NOT EXISTS idx_transactions_workspace ON transactions(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_transaction_items_tx ON transaction_items(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_shopping_workspace ON shopping_items(workspace_id);
 
--- 5. SEMBRADO DE ESPACIO INICIAL PARA GIL & ALE (ID FIJO PARA SINCRONIZACIÓN)
+-- 6. SEMBRADO DE ESPACIO INICIAL PARA GIL & ALE (ID FIJO PARA SINCRONIZACIÓN)
 INSERT INTO workspaces (id, name, authorized_email_1, authorized_email_2, currency_code, currency_symbol, monthly_savings_goal)
 VALUES (
     'a0000000-0000-0000-0000-000000000001',

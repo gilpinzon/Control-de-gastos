@@ -57,7 +57,7 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 
   <!-- Custom App CSS (Touch targets >= 44px) con versionado anti-caché -->
-  <link rel="stylesheet" href="./app.css?v=3.2.1" />
+  <link rel="stylesheet" href="./app.css?v=3.3.0" />
 </head>
 
 <body class="bg-[#07090e] text-slate-100 antialiased selection:bg-emerald-500 selection:text-white">
@@ -1110,7 +1110,7 @@
   </script>
 
   <!-- Main Application Logic Script con Versionado Anti-Caché -->
-  <script src="./app.js?v=3.2.1"></script>
+  <script src="./app.js?v=3.3.0"></script>
 
   <!-- PWA Service Worker Registration & Icon Renderer -->
   <script>
@@ -1120,7 +1120,7 @@
     window.addEventListener('load', () => {
       if (window.lucide) lucide.createIcons();
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js?v=3.2.1')
+        navigator.serviceWorker.register('/sw.js?v=3.3.0')
           .then(reg => {
             console.log('[ServiceWorker] Registrado con éxito para Gil & Ale:', reg.scope);
             reg.update();

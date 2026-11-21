@@ -75,25 +75,67 @@ def update_workspace(data: Dict[str, Any]) -> bool:
 
 
 def get_transactions() -> List[Dict[str, Any]]:
-    """Retorna el listado completo de movimientos del fondo común ordenados cronológicamente."""
+    """Retorna el listado completo de movimientos del fondo común con sus productos desglosados."""
     ensure_tables()
     conn = get_sqlite_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, type, amount, category, coalesce(description, '') as description,
                date, recorded_by as paidBy, coalesce(vendor, '') as vendor,
-               coalesce(ocr_confidence, 0) as ocrConfidence, created_at as createdAt
+               coalesce(ocr_confidence, 0) as ocrConfidence,
+               coalesce(items_count, 0) as itemsCount,
+               created_at as createdAt
         FROM transactions
         WHERE workspace_id = ?
         ORDER BY date DESC, created_at DESC;
     """, (WORKSPACE_ID,))
     rows = [dict(r) for r in cursor.fetchall()]
+
+    # Obtener ítems asociados a las transacciones
+    if rows:
+        cursor.execute("""
+            SELECT id, transaction_id as transactionId, name, quantity, unit,
+                   unit_price as unitPrice, total_price as totalPrice
+            FROM transaction_items
+            ORDER BY created_at ASC;
+        """)
+        items_by_tx: Dict[str, List[Dict[str, Any]]] = {}
+        for item in cursor.fetchall():
+            d_item = dict(item)
+            t_id = d_item["transactionId"]
+            if t_id not in items_by_tx:
+                items_by_tx[t_id] = []
+            items_by_tx[t_id].append(d_item)
+
+        for row in rows:
+            tx_id = row["id"]
+            row["items"] = items_by_tx.get(tx_id, [])
+            if not row.get("itemsCount"):
+                row["itemsCount"] = len(row["items"])
+
     conn.close()
     return rows
 
 
+def get_transaction_items(tx_id: str) -> List[Dict[str, Any]]:
+    """Obtiene los productos desglosados de una transacción específica."""
+    ensure_tables()
+    conn = get_sqlite_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, transaction_id as transactionId, name, quantity, unit,
+               unit_price as unitPrice, total_price as totalPrice
+        FROM transaction_items
+        WHERE transaction_id = ?
+        ORDER BY created_at ASC;
+    """, (str(tx_id),))
+    items = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return items
+
+
 def create_transaction(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Registra un nuevo gasto o ingreso en el fondo común."""
+    """Registra un nuevo gasto o ingreso en el fondo común con desglose opcional de productos."""
     ensure_tables()
     tx_type = data.get("type", "gasto")
     amount = float(data.get("amount", 0))
@@ -107,6 +149,7 @@ def create_transaction(data: Dict[str, Any]) -> Dict[str, Any]:
     vendor = data.get("vendor") or ""
     ocr_confidence = float(data.get("ocrConfidence") or data.get("ocr_confidence") or 0)
     receipt_image_url = data.get("receiptImageUrl") or data.get("receipt_image_url") or ""
+    items = data.get("items") or []
 
     tx_id = data.get("id")
     if not tx_id or len(str(tx_id)) < 10:
@@ -116,19 +159,49 @@ def create_transaction(data: Dict[str, Any]) -> Dict[str, Any]:
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO transactions (id, workspace_id, type, amount, category, description,
-                                 date, recorded_by, receipt_image_url, vendor, ocr_confidence)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                                 date, recorded_by, receipt_image_url, vendor, ocr_confidence, items_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """, (tx_id, WORKSPACE_ID, tx_type, amount, category, description,
-          date_val, paid_by, receipt_image_url, vendor, ocr_confidence))
+          date_val, paid_by, receipt_image_url, vendor, ocr_confidence, len(items)))
+
+    # Guardar productos/ítems detallados de la factura si están presentes
+    saved_items = []
+    if items and isinstance(items, list):
+        for it in items:
+            it_name = (it.get("name") or "").strip()
+            if not it_name:
+                continue
+            it_id = str(uuid.uuid4())
+            it_qty = float(it.get("quantity") or 1.0)
+            it_unit = str(it.get("unit") or "UND").upper()
+            it_unit_price = float(it.get("unit_price") or it.get("unitPrice") or 0.0)
+            it_total_price = float(it.get("total_price") or it.get("totalPrice") or (it_qty * it_unit_price) or 0.0)
+
+            cursor.execute("""
+                INSERT INTO transaction_items (id, transaction_id, name, quantity, unit, unit_price, total_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+            """, (it_id, tx_id, it_name, it_qty, it_unit, it_unit_price, it_total_price))
+            saved_items.append({
+                "id": it_id,
+                "transactionId": tx_id,
+                "name": it_name,
+                "quantity": it_qty,
+                "unit": it_unit,
+                "unitPrice": it_unit_price,
+                "totalPrice": it_total_price
+            })
 
     conn.commit()
     cursor.execute("""
         SELECT id, type, amount, category, description, date,
-               recorded_by as paidBy, vendor, ocr_confidence as ocrConfidence, created_at as createdAt
+               recorded_by as paidBy, vendor, ocr_confidence as ocrConfidence,
+               items_count as itemsCount, created_at as createdAt
         FROM transactions WHERE id = ?;
     """, (tx_id,))
     row = dict(cursor.fetchone())
     row["paid_by"] = row.get("paidBy")
+    row["items"] = saved_items
+    row["itemsCount"] = len(saved_items)
     conn.close()
     return row
 

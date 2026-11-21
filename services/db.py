@@ -85,6 +85,7 @@ def ensure_tables():
         receipt_image_url TEXT DEFAULT '',
         vendor TEXT DEFAULT '',
         ocr_confidence REAL DEFAULT 0,
+        items_count INTEGER DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
     """)
@@ -98,8 +99,25 @@ def ensure_tables():
         cursor.execute("ALTER TABLE transactions ADD COLUMN vendor TEXT DEFAULT '';")
     if "ocr_confidence" not in existing_cols:
         cursor.execute("ALTER TABLE transactions ADD COLUMN ocr_confidence REAL DEFAULT 0;")
+    if "items_count" not in existing_cols:
+        cursor.execute("ALTER TABLE transactions ADD COLUMN items_count INTEGER DEFAULT 0;")
 
-    # 3. Tabla shopping_items
+    # 3. Tabla transaction_items (Detalle de productos de facturas)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS transaction_items (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        unit TEXT NOT NULL DEFAULT 'UND',
+        unit_price REAL DEFAULT 0,
+        total_price REAL NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_transaction_items_tx ON transaction_items(transaction_id);")
+
+    # 4. Tabla shopping_items
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS shopping_items (
         id TEXT PRIMARY KEY,

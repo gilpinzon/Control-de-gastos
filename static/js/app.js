@@ -537,33 +537,70 @@ class DuoControlApp {
       const iconName = iconByCat[tx.category] || (isExpense ? 'arrow-up-right' : 'arrow-down-left');
       const iconBg = isExpense ? 'bg-rose-500/15 text-rose-400 border-rose-500/20' : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20';
 
+      let itemsSnippet = '';
+      if (tx.items && tx.items.length > 0) {
+        itemsSnippet = `
+          <div class="mt-2.5 pt-2 border-t border-white/5">
+            <details class="group">
+              <summary class="cursor-pointer list-none flex items-center justify-between text-[11px] text-indigo-300 font-bold hover:text-indigo-200">
+                <span class="flex items-center space-x-1.5">
+                  <i data-lucide="shopping-bag" class="w-3.5 h-3.5 text-indigo-400"></i>
+                  <span>Ver ${tx.items.length} productos de la factura</span>
+                </span>
+                <span class="text-[10px] text-slate-500 group-open:rotate-180 transition-transform">▼</span>
+              </summary>
+              <div class="mt-2 space-y-1.5 pl-1 pr-1">
+                ${tx.items.map(it => {
+                  const unitVal = it.unit || 'UND';
+                  const qtyVal = it.quantity || 1;
+                  const priceVal = it.totalPrice || it.total_price || (qtyVal * (it.unitPrice || it.unit_price || 0));
+                  return `
+                    <div class="flex items-center justify-between text-xs py-0.5 border-b border-white/[0.03]">
+                      <span class="text-slate-200 truncate pr-2">
+                        ${it.name} <span class="text-indigo-300 font-mono text-[10px]">(${qtyVal} ${unitVal})</span>
+                      </span>
+                      <span class="font-bold text-slate-300 shrink-0 font-mono text-xs">
+                        $${Number(priceVal).toLocaleString('es-CO')}
+                      </span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </details>
+          </div>
+        `;
+      }
+
       return `
-        <div class="flex items-center justify-between p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/5 transition-all min-h-[58px]">
-          <div class="flex items-center space-x-3 truncate">
-            <div class="w-11 h-11 rounded-2xl ${iconBg} border flex items-center justify-center shrink-0">
-              <i data-lucide="${iconName}" class="w-5 h-5"></i>
+        <div class="p-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/5 transition-all">
+          <div class="flex items-center justify-between min-h-[50px]">
+            <div class="flex items-center space-x-3 truncate">
+              <div class="w-11 h-11 rounded-2xl ${iconBg} border flex items-center justify-center shrink-0">
+                <i data-lucide="${iconName}" class="w-5 h-5"></i>
+              </div>
+              <div class="truncate">
+                <div class="flex items-center space-x-1.5">
+                  <span class="text-sm font-bold text-slate-100 truncate">${tx.description || tx.category}</span>
+                </div>
+                <div class="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                  <span class="text-emerald-400/90 font-medium">${tx.category}</span>
+                  <span>•</span>
+                  <span>${tx.date}</span>
+                  <span>•</span>
+                  <span class="text-slate-300 font-semibold">${tx.paidBy}</span>
+                </div>
+              </div>
             </div>
-            <div class="truncate">
-              <div class="flex items-center space-x-1.5">
-                <span class="text-sm font-bold text-slate-100 truncate">${tx.description || tx.category}</span>
-              </div>
-              <div class="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
-                <span class="text-emerald-400/90 font-medium">${tx.category}</span>
-                <span>•</span>
-                <span>${tx.date}</span>
-                <span>•</span>
-                <span class="text-slate-300 font-semibold">${tx.paidBy}</span>
-              </div>
+            <div class="flex items-center space-x-2 shrink-0 ml-2">
+              <span class="text-sm sm:text-base font-black tabular-nums ${colorClass}">
+                ${sign}${this.formatCurrency(tx.amount)}
+              </span>
+              <button onclick="app.deleteTransaction('${tx.id}')" class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:text-rose-400 hover:bg-white/5 transition-colors touch-press" title="Eliminar">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
             </div>
           </div>
-          <div class="flex items-center space-x-2 shrink-0 ml-2">
-            <span class="text-sm sm:text-base font-black tabular-nums ${colorClass}">
-              ${sign}${this.formatCurrency(tx.amount)}
-            </span>
-            <button onclick="app.deleteTransaction('${tx.id}')" class="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-slate-500 hover:text-rose-400 hover:bg-white/5 transition-colors touch-press" title="Eliminar">
-              <i data-lucide="trash-2" class="w-4 h-4"></i>
-            </button>
-          </div>
+          ${itemsSnippet}
         </div>
       `;
     }).join('');
@@ -1155,6 +1192,7 @@ class DuoControlApp {
   }
 
   resetReceiptScannerUI() {
+    this.scannedReceiptItems = [];
     const statusBox = document.getElementById('receiptScanningStatus');
     const alertBox = document.getElementById('receiptBlurryAlert');
     const successBox = document.getElementById('receiptSuccessChip');
@@ -1241,7 +1279,8 @@ class DuoControlApp {
       if (overlay) overlay.classList.add('hidden');
 
       if (data && data.success && data.amount && data.auto_saved) {
-        // Gasto guardado automáticamente en Neon PostgreSQL
+        // Gasto guardado automáticamente en Neon PostgreSQL con desglose de productos
+        const rawItems = data.items || (data.transaction && data.transaction.items) || [];
         const savedTx = {
           id: (data.transaction && data.transaction.id) ? data.transaction.id : generateUUID(),
           type: 'gasto',
@@ -1251,6 +1290,8 @@ class DuoControlApp {
           date: (data.transaction && data.transaction.date) ? data.transaction.date : new Date().toISOString().split('T')[0],
           paidBy: (data.transaction && data.transaction.paid_by) ? data.transaction.paid_by : activePayer,
           vendor: data.vendor || 'Supermercado',
+          items: rawItems,
+          itemsCount: data.items_count || rawItems.length,
           createdAt: new Date().toISOString()
         };
 
@@ -1269,7 +1310,8 @@ class DuoControlApp {
         if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
 
         const formatted = Number(data.amount).toLocaleString('es-CO');
-        this.showToast(`🎉 ¡${savedTx.description} guardada! $${formatted} COP en Mercado`);
+        const itemsInfo = (rawItems && rawItems.length > 0) ? ` (${rawItems.length} productos)` : '';
+        this.showToast(`🎉 ¡${savedTx.description} guardada! $${formatted} COP${itemsInfo}`);
 
       } else {
         // Foto borrosa o no concluyente: Activar respaldo móvil sin bloquear ni guardar datos falsos
@@ -1364,10 +1406,18 @@ class DuoControlApp {
           descInput.value = data.description || `Compra ${data.vendor || 'Supermercado'}`;
         }
 
+        // Guardar desglose de productos si fueron detectados
+        if (data.items && data.items.length > 0) {
+          this.scannedReceiptItems = data.items;
+        } else {
+          this.scannedReceiptItems = [];
+        }
+
         // Mostrar chip de confirmación
         if (successBox) {
           if (successMsg) {
-            successMsg.textContent = `✓ ${data.vendor || 'Supermercado'}: $${Number(data.amount).toLocaleString('es-CO')} COP`;
+            const itemsCountText = (data.items && data.items.length > 0) ? ` (${data.items.length} productos detectados)` : '';
+            successMsg.textContent = `✓ ${data.vendor || 'Supermercado'}: $${Number(data.amount).toLocaleString('es-CO')} COP${itemsCountText}`;
           }
           successBox.classList.remove('hidden');
         }
@@ -1560,6 +1610,7 @@ class DuoControlApp {
       return;
     }
 
+    const hasItems = this.scannedReceiptItems && this.scannedReceiptItems.length > 0;
     const newTx = {
       id: generateUUID(),
       type: this.modalTxType,
@@ -1568,8 +1619,12 @@ class DuoControlApp {
       description: descInput ? descInput.value.trim() : '',
       date: dateInput ? dateInput.value : new Date().toISOString().split('T')[0],
       paidBy: paidByInput ? paidByInput.value : (this.state.couple.name1 || 'Gil'),
+      items: hasItems ? this.scannedReceiptItems : [],
+      itemsCount: hasItems ? this.scannedReceiptItems.length : 0,
       createdAt: new Date().toISOString()
     };
+
+    this.scannedReceiptItems = [];
 
     if (!this.state.transactions) this.state.transactions = [];
     this.state.transactions.unshift(newTx);

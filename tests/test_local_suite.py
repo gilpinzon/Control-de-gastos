@@ -172,4 +172,54 @@ sync_res = sync_all({
 assert sync_res["success"] is True
 print("✓ 9. Sincronización offline-to-online: OK")
 
-print("\n🎉 TODAS LAS 9 PRUEBAS PASARON EXITOSAMENTE AL 100%!")
+# 10. Prueba de Extracción Detallada de Ítems (Productos, Unidad, Cantidad y Valor COP)
+ticket_items_detail = """
+TIENDAS D1 - KOBA COLOMBIA
+NIT: 900.276.962-1
+LECHE DESLACTOSADA 1L
+2 UND X 4.200                      8.400 (EX)
+PAN BLANCO TAJADO
+1 UND X 4.500                      4.500 (IV=19%)
+HUEVOS ROJOS AA X30
+1 UND X 18.500                    18.500
+BASE GRAVABLE 19%:                 3.781
+IVA 19%:                             719
+SUBTOTAL:                         31.400
+TOTAL A PAGAR:                    31.400
+EFECTIVO:                         50.000
+CAMBIO:                           18.600
+"""
+res_items = parse_supermarket_receipt_text(ticket_items_detail)
+assert res_items["success"] is True
+assert res_items["amount"] == 31400, f"Expected 31400, got {res_items['amount']}"
+assert len(res_items["items"]) == 3, f"Expected 3 items, got {len(res_items['items'])}"
+item_names = [it["name"] for it in res_items["items"]]
+assert any("Leche" in n for n in item_names), f"Missing Leche in {item_names}"
+assert any("Pan" in n for n in item_names), f"Missing Pan in {item_names}"
+assert any("Huevos" in n for n in item_names), f"Missing Huevos in {item_names}"
+# Verificar unidades y cantidades
+leche_it = next(it for it in res_items["items"] if "Leche" in it["name"])
+assert leche_it["unit"] == "UND"
+assert leche_it["quantity"] == 2
+assert leche_it["total_price"] == 8400
+print(f"✓ 10. Extracción de productos, unidades y valores individuales: OK ({len(res_items['items'])} productos)")
+
+# 11. Guardado de Factura con Detalle de Productos en Base de Datos
+save_with_items = process_and_save_receipt(
+    image_bytes=b"",
+    client_ocr_text=ticket_items_detail,
+    auto_save=True,
+    paid_by="Gil",
+    category="Mercado / Supermercado"
+)
+assert save_with_items["success"] is True
+assert save_with_items["auto_saved"] is True
+assert len(save_with_items["items"]) == 3
+saved_tx_id = save_with_items["transaction"]["id"]
+all_txs = get_transactions()
+matched_tx = next(t for t in all_txs if t["id"] == saved_tx_id)
+assert matched_tx["itemsCount"] == 3
+assert len(matched_tx["items"]) == 3
+print("✓ 11. Guardado de ítems y detalle de factura en Neon/SQLite: OK")
+
+print("\n🎉 TODAS LAS 11 PRUEBAS PASARON EXITOSAMENTE AL 100%!")
